@@ -1,0 +1,10 @@
+bin/
+obj/
+.env
+.git/
+.gitignore
+appsettings.json
+*.md
+deploy.*
+*.service
+README.md

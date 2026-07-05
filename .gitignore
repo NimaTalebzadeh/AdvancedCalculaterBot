@@ -1,0 +1,10 @@
+bin/
+obj/
+.env
+appsettings.json
+*.user
+.vscode/
+.idea/
+deploy.*
+*.service
+README.md
