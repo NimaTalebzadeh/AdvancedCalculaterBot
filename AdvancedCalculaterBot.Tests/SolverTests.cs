@@ -41,4 +41,28 @@ public class SolverTests
         Assert.Contains(roots, r => Near(r, new Complex(0, 1)));
         Assert.Contains(roots, r => Near(r, new Complex(0, -1)));
     }
+
+    // ---- CubicSolver ----
+
+    [Fact]
+    public void CubicSolver_Three_Real_Distinct_Roots()
+    {
+        // x^3 - 6x^2 + 11x - 6 = 0  ->  x in {1, 2, 3}
+        var roots = CubicSolver.Solve(new[] { -6.0, 11.0, -6.0, 1.0 });
+        Assert.Equal(3, roots.Length);
+        Assert.Contains(roots, r => Near(r, new Complex(1, 0)));
+        Assert.Contains(roots, r => Near(r, new Complex(2, 0)));
+        Assert.Contains(roots, r => Near(r, new Complex(3, 0)));
+    }
+
+    [Fact]
+    public void CubicSolver_One_Real_Root_Two_Complex()
+    {
+        // x^3 + 1 = 0  ->  x in {-1, (1 ± i*sqrt(3))/2 }
+        var roots = CubicSolver.Solve(new[] { 1.0, 0.0, 0.0, 1.0 });
+        Assert.Equal(3, roots.Length);
+        Assert.Contains(roots, r => Near(r, new Complex(-1, 0)));
+        Assert.Contains(roots, r => Near(r, new Complex(0.5, Math.Sqrt(3) / 2)));
+        Assert.Contains(roots, r => Near(r, new Complex(0.5, -Math.Sqrt(3) / 2)));
+    }
 }
