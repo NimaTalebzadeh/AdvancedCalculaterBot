@@ -1,4 +1,0 @@
-<Solution>
-  <Project Path="AdvancedCalculaterBot.csproj" />
-  <Project Path="AdvancedCalculaterBot.Tests/AdvancedCalculaterBot.Tests.csproj" />
-</Solution>
