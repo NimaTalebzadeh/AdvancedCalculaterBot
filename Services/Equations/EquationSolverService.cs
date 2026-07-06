@@ -34,6 +34,23 @@ public static class EquationSolverService
         if (!ContainsVariable(equation))
             return "Only equations in the variable 'x' are supported.";
 
+        // Check for transcendental equations first
+        if (TranscendentalSolver.IsTranscendental(equation))
+        {
+            try
+            {
+                double[] doubleRoots = TranscendentalSolver.Solve(equation);
+                Complex[] roots = Array.ConvertAll(doubleRoots, d => new Complex(d, 0));
+                if (roots.Length == 0)
+                    return "No solution found (diverged or no root near x₀ = 1)";
+                return ComplexFormatter.FormatRoots(roots);
+            }
+            catch
+            {
+                return "No solution found (diverged or no root near x₀ = 1)";
+            }
+        }
+
         try
         {
             double[] coeffs = GetDifferenceCoeffs(lhs, rhs);
@@ -92,6 +109,16 @@ public static class EquationSolverService
                 : "No solution.";
         }
 
+        // Use Durand-Kerner for quintic equations
+        if (degree == 5)
+        {
+            Complex[] quinticRoots = QuinticSolver.Solve(coeffs);
+            return ComplexFormatter.FormatRoots(quinticRoots);
+        }
+
+        if (degree > 5)
+            return "Only up to degree 5 supported";
+
         Complex[] roots = degree switch
         {
             1 => LinearSolver.Solve(coeffs),
@@ -100,9 +127,6 @@ public static class EquationSolverService
             4 => QuarticSolver.Solve(coeffs),
             _ => Array.Empty<Complex>()
         };
-
-        if (degree > 4)
-            return "I can only solve equations up to degree 4 (quartic).";
 
         return ComplexFormatter.FormatRoots(roots);
     }

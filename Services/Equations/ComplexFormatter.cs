@@ -41,8 +41,14 @@ public static class ComplexFormatter
         if (unique.Count == 1)
             return $"x = {Format(unique[0])}";
 
-        var labels = new[] { "x₁", "x₂", "x₃", "x₄" };
-        var lines = unique.Select((r, idx) => $"{labels[idx]} = {Format(r)}");
+        // Generate subscript numbers dynamically for any number of roots
+        var labels = new string[5] { "x₁", "x₂", "x₃", "x₄", "x₅" };
+        var lines = new List<string>();
+        for (int i = 0; i < unique.Count; i++)
+        {
+            string label = i < labels.Length ? labels[i] : $"x{ i + 1 }";  // Fallback for > 5 roots
+            lines.Add($"{label} = {Format(unique[i])}");
+        }
         return string.Join("\n", lines);
     }
 
