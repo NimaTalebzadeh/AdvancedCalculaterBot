@@ -5,6 +5,7 @@ using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using AdvancedCalculaterBot.Services;
+using AdvancedCalculaterBot.Services.Equations;
 using AdvancedCalculaterBot.State;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -92,16 +93,26 @@ botClient.StartReceiving(
             }
             else
             {
-                try
+                bool isEquation = expression.Contains('=')
+                                  && expression.Contains('x', StringComparison.OrdinalIgnoreCase);
+
+                if (isEquation)
                 {
-                    tracker.Add(expression);
-                    var calculatorService = new CalculatorService(expression);
-                    var result = calculatorService.Evaluate();
-                    response = $"{expression} = {result}";
+                    response = EquationSolverService.Solve(expression);
                 }
-                catch
+                else
                 {
-                    response = $"Sorry, I couldn't understand \"{expression}\" as a mathematical expression.";
+                    try
+                    {
+                        tracker.Add(expression);
+                        var calculatorService = new CalculatorService(expression);
+                        var result = calculatorService.Evaluate();
+                        response = $"{expression} = {result}";
+                    }
+                    catch
+                    {
+                        response = $"Sorry, I couldn't understand \"{expression}\" as a mathematical expression.";
+                    }
                 }
             }
         }
