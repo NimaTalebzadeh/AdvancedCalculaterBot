@@ -1,9 +1,14 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using AdvancedCalculaterBot.Services.Mathematics;
 using NCalc;
 
 namespace AdvancedCalculaterBot.Services;
 
+/// <summary>
+/// Calculator service that integrates the new mathematical expression engine
+/// while maintaining backward compatibility with existing functionality.
+/// </summary>
 public class CalculatorService
 {
     private readonly string _expression;
@@ -13,17 +18,34 @@ public class CalculatorService
         _expression = expression;
     }
 
+    /// <summary>
+    /// Evaluates a mathematical expression. First checks if it's a special mathematical
+    /// operation (solve, derivative, integral, etc.), then falls back to standard evaluation.
+    /// </summary>
     public object Evaluate()
     {
         try
         {
-            var processed = ProcessFunctions(_expression);
-            var expression = new Expression(processed);
-            expression.Parameters["pi"] = Math.PI;
-            expression.Parameters["e"] = Math.E;
+            // Check if this is a mathematical operation command
+            string expression = _expression.Trim();
+            if (MathOperationHandler.IsMathematicalOperation(expression))
+            {
+                // For operations that return complex results or strings, we need to handle them specially
+                var operationResult = MathOperationHandler.HandleCommand(expression);
+                if (operationResult.Success)
+                    return operationResult.FormattedValue ?? operationResult.Value ?? "Result";
+                else
+                    throw new ArgumentException(operationResult.Message);
+            }
 
-            var result = expression.Evaluate();
-            return result ?? 0;
+            // Fall back to original calculator functionality for standard expressions
+            var processed = ProcessFunctions(expression);
+            var ncalcExpression = new Expression(processed);
+            ncalcExpression.Parameters["pi"] = Math.PI;
+            ncalcExpression.Parameters["e"] = Math.E;
+
+            var evalResult = ncalcExpression.Evaluate();
+            return evalResult ?? 0;
         }
         catch (Exception ex)
         {

@@ -7,6 +7,7 @@ using Telegram.Bot.Types.Enums;
 using AdvancedCalculaterBot.Services;
 using AdvancedCalculaterBot.Services.Equations;
 using AdvancedCalculaterBot.State;
+using AdvancedCalculaterBot.Services.Mathematics;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -93,14 +94,8 @@ botClient.StartReceiving(
             }
             else
             {
-                bool isEquation = expression.Contains('=')
-                                  && expression.Contains('x', StringComparison.OrdinalIgnoreCase);
-
-                if (isEquation)
-                {
-                    response = EquationSolverService.Solve(expression);
-                }
-                else
+                // Check if it's a mathematical operation (solve, d, int, lim, simplify, expand, factor)
+                if (MathOperationHandler.IsMathematicalOperation(expression))
                 {
                     try
                     {
@@ -111,7 +106,31 @@ botClient.StartReceiving(
                     }
                     catch
                     {
-                        response = $"Sorry, I couldn't understand \"{expression}\" as a mathematical expression.";
+                        response = $"Sorry, I couldn't understand \"{expression}\" as a mathematical operation.";
+                    }
+                }
+                else
+                {
+                    bool isEquation = expression.Contains('=')
+                                      && expression.Contains('x', StringComparison.OrdinalIgnoreCase);
+
+                    if (isEquation)
+                    {
+                        response = EquationSolverService.Solve(expression);
+                    }
+                    else
+                    {
+                        try
+                        {
+                            tracker.Add(expression);
+                            var calculatorService = new CalculatorService(expression);
+                            var result = calculatorService.Evaluate();
+                            response = $"{expression} = {result}";
+                        }
+                        catch
+                        {
+                            response = $"Sorry, I couldn't understand \"{expression}\" as a mathematical expression.";
+                        }
                     }
                 }
             }
