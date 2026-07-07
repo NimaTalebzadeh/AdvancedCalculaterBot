@@ -52,107 +52,136 @@ var receiverOptions = new ReceiverOptions
 };
 
 botClient.StartReceiving(
-    updateHandler: async (bot, update, token) =>
-    {
-        if (update.Message is not { Text: { } text } message)
-            return;
-
-        Log.Information("Received message from {User}: {Text}", message.From?.Username, text);
-
-        string response;
-        try
-        {
-            string expression = text.Trim();
-
-            if (expression.Equals("/top", StringComparison.OrdinalIgnoreCase))
+            updateHandler: async (bot, update, token) =>
             {
-                if (message.From != null && adminIds.Contains(message.From.Id))
+                if (update.Message is not { Text: { } text } message)
+                    return;
+
+                Log.Information("Received message from {User}: {Text}", message.From?.Username, text);
+
+                string response;
+                try
                 {
-                    var top = tracker.GetTop();
-                    var list = string.Join("\n", top.Select((item, i) =>
-                        $"{i + 1}. {item.Expression} (score: {item.Score})"));
-                    response = top.Any()
-                        ? $"Top 10 complex questions:\n{list}"
-                        : "No complex questions recorded.";
-                }
-                else
-                {
-                    response = "You are not authorized to view the top list.";
-                }
-                await bot.SendMessage(chatId: message.Chat.Id, text: response, cancellationToken: token);
-                return;
-            }
+                    string expression = text.Trim();
 
-            if (expression.StartsWith("/calc", StringComparison.OrdinalIgnoreCase))
-            {
-                expression = expression.Substring(5).Trim();
-            }
-
-            if (string.IsNullOrWhiteSpace(expression))
-            {
-                response = "Please provide a mathematical expression.\nExample: /calc 2 + 2 * (3 + 4)";
-            }
-            else
-            {
-                // Check if it's a mathematical operation (solve, d, int, lim, simplify, expand, factor)
-                if (MathOperationHandler.IsMathematicalOperation(expression))
-                {
-                    try
+                    if (expression.Equals("/top", StringComparison.OrdinalIgnoreCase))
                     {
-                        tracker.Add(expression);
-                        var calculatorService = new CalculatorService(expression);
-                        var result = calculatorService.Evaluate();
-                        response = $"{expression} = {result}";
+                        if (message.From != null && adminIds.Contains(message.From.Id))
+                        {
+                            var top = tracker.GetTop();
+                            var list = string.Join("\n", top.Select((item, i) =>
+                                $"{i + 1}. {item.Expression} (score: {item.Score})"));
+                            response = top.Any()
+                                ? $"Top 10 complex questions:\n{list}"
+                                : "No complex questions recorded.";
+                        }
+                        else
+                        {
+                            response = "You are not authorized to view the top list.";
+                        }
+                        await bot.SendMessage(chatId: message.Chat.Id, text: response, cancellationToken: token);
+                        return;
                     }
-                    catch
-                    {
-                        response = $"Sorry, I couldn't understand \"{expression}\" as a mathematical operation.";
-                    }
-                }
-                else
-                {
-                    bool isEquation = expression.Contains('=')
-                                      && expression.Contains('x', StringComparison.OrdinalIgnoreCase);
 
-                    if (isEquation)
+                    if (expression.StartsWith("/calc", StringComparison.OrdinalIgnoreCase))
                     {
-                        response = EquationSolverService.Solve(expression);
+                        expression = expression.Substring(5).Trim();
+                    }
+
+                    if (string.IsNullOrWhiteSpace(expression))
+                    {
+                        response = "Please provide a mathematical expression.\nExample: /calc 2 + 2 * (3 + 4)";
                     }
                     else
                     {
-                        try
+                        // Split by newlines and process each line
+                        var lines = expression.Split('\n')
+                            .Select(l => l.Trim())
+                            .Where(l => l.Length > 0)
+                            .ToArray();
+
+                        var results = new List<string>();
+
+                        foreach (var line in lines)
                         {
-                            tracker.Add(expression);
-                            var calculatorService = new CalculatorService(expression);
-                            var result = calculatorService.Evaluate();
-                            response = $"{expression} = {result}";
+                            try
+                            {
+                                string resultStr;
+                                string expr = line.Trim();
+
+                                if (expr.StartsWith("/calc", StringComparison.OrdinalIgnoreCase))
+                                    expr = expr.Substring(5).Trim();
+
+                                if (string.IsNullOrWhiteSpace(expr))
+                                    continue;
+
+                                // Check if it's a mathematical operation (d, int, lim, simplify, expand, factor)
+                                if (MathOperationHandler.IsMathematicalOperation(expr))
+                                {
+                                    var calculatorService = new CalculatorService(expr);
+                                    var result = calculatorService.Evaluate();
+                                    resultStr = $"{expr} = {result}";
+                                    tracker.Add(expr);
+                                }
+                                else
+                                {
+                                    // Check if it's a system of equations (comma-separated with multiple variables)
+                                    if (SystemOfEquationsSolver.IsSystemOfEquations(expr))
+                                    {
+                                        resultStr = SystemOfEquationsSolver.Solve(expr);
+                                    }
+                                    else
+                                    {
+                                        bool isEquation = expr.Contains('=')
+                                                          && (expr.Contains('x', StringComparison.OrdinalIgnoreCase)
+                                                              || expr.Contains('y', StringComparison.OrdinalIgnoreCase)
+                                                              || expr.Contains('z', StringComparison.OrdinalIgnoreCase));
+
+                                        if (isEquation)
+                                        {
+                                            resultStr = EquationSolverService.Solve(expr);
+                                        }
+                                        else
+                                        {
+                                            var calculatorService = new CalculatorService(expr);
+                                            var result = calculatorService.Evaluate();
+                                            resultStr = $"{expr} = {result}";
+                                            tracker.Add(expr);
+                                        }
+                                    }
+                                }
+
+                                results.Add(resultStr);
+                            }
+                            catch (Exception ex)
+                            {
+                                results.Add($"Error: {line} => {ex.Message}");
+                            }
                         }
-                        catch
-                        {
-                            response = $"Sorry, I couldn't understand \"{expression}\" as a mathematical expression.";
-                        }
+
+                        response = results.Count > 0
+                            ? string.Join("\n", results)
+                            : "Please provide a mathematical expression.";
                     }
                 }
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "Error calculating expression");
-            response = "Sorry, there was an error processing your calculation.";
-        }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Error calculating expression");
+                    response = "Sorry, there was an error processing your calculation.";
+                }
 
-        await bot.SendMessage(
-            chatId: message.Chat.Id,
-            text: response,
-            cancellationToken: token);
-    },
-    errorHandler: async (bot, exception, token) =>
-    {
-        Log.Error(exception, "Error handling update");
-        await Task.CompletedTask;
-    },
-    receiverOptions: receiverOptions,
-    cancellationToken: cts.Token);
+                await bot.SendMessage(
+                    chatId: message.Chat.Id,
+                    text: response,
+                    cancellationToken: token);
+            },
+            errorHandler: async (bot, exception, token) =>
+            {
+                Log.Error(exception, "Error handling update");
+                await Task.CompletedTask;
+            },
+            receiverOptions: receiverOptions,
+            cancellationToken: cts.Token);
 
 var me = await botClient.GetMe(cts.Token);
 Log.Information("Bot started as @{Username}", me.Username);

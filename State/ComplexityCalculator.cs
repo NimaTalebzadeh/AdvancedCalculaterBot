@@ -13,7 +13,7 @@ public static class ComplexityCalculator
         if (string.IsNullOrWhiteSpace(expression))
             return 0;
 
-        int lengthScore = expression.Length;
+        int lengthScore = Math.Min(expression.Length, 50); // Cap length contribution
         int operatorCount = expression.Count(c => "+-*/^%".Contains(c));
         int functionCount = FunctionPattern.Matches(expression).Count;
         int parenthesesDepth = 0;
@@ -25,11 +25,11 @@ public static class ComplexityCalculator
             else if (c == ')') parenthesesDepth--;
         }
 
-        int rawScore = lengthScore
-                     + operatorCount * 5
-                     + functionCount * 15
-                     + maxDepth * 3;
+        int rawScore = (int)(lengthScore * 0.5)
+                     + operatorCount * 3
+                     + functionCount * 12
+                     + maxDepth * 4;
 
-        return Math.Min(100, rawScore);
+        return Math.Min(100, Math.Max(0, rawScore));
     }
 }

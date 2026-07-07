@@ -8,10 +8,16 @@ public class ComplexityTracker
     private readonly List<ComplexityEntry> _entries = new();
 
     private const int MaxItems = 10;
+    private const int MinScoreThreshold = 10; // Only track expressions with score >= this
 
     public void Add(string expression)
     {
         int score = ComplexityCalculator.Compute(expression);
+
+        // Skip trivially simple expressions
+        if (score < MinScoreThreshold)
+            return;
+
         var entry = new ComplexityEntry
         {
             Expression = expression,

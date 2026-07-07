@@ -56,9 +56,8 @@ public static class QuarticSolver
 
             var resolventRoots = CubicSolver.Solve(new[] { rc_d, rc_c, rc_b, rc_a });
 
-            // Pick any resolvent root whose imaginary part is (near) zero. The
-            // resolvent of a real-coefficient quartic always has a real root.
-            Complex m = resolventRoots.First(rr => Math.Abs(rr.Imaginary) < RealRootTolerance);
+            // Pick the resolvent root with the smallest imaginary part.
+            Complex m = resolventRoots.OrderBy(rr => Math.Abs(rr.Imaginary)).First();
 
             yRoots = SolveFerrari(p, q, m);
         }

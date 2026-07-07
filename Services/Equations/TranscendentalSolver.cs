@@ -41,63 +41,87 @@ namespace AdvancedCalculaterBot.Services.Equations
             var lhs = equation.Substring(0, eq).Trim();
             var rhs = equation.Substring(eq + 1).Trim();
 
-            // Preprocess expressions for NCalc
             string leftExpr = PreprocessForNCalc(lhs);
             string rightExpr = PreprocessForNCalc(rhs);
 
-            double x = InitialGuess;
-            double f = EvaluateDifference(leftExpr, rightExpr, x);
+            var solutions = new List<double>();
 
-            for (int iter = 0; iter < MaxIterations; iter++)
+            // Coarse grid scan to find sign changes
+            double lo = -500, hi = 500, step = 0.05;
+            double fLo = SafeEval(leftExpr, rightExpr, lo);
+            for (double xi = lo + step; xi <= hi; xi += step)
             {
-                if (Math.Abs(f) < Tolerance)
-                    return new[] { x };
+                double fXi = SafeEval(leftExpr, rightExpr, xi);
 
-                double fPrime = NumericalDerivative(leftExpr, rightExpr, x);
-
-                if (Math.Abs(fPrime) < 1e-14)
+                if (double.IsInfinity(fLo) || double.IsInfinity(fXi))
                 {
-                    x = x + 0.5;
-                    f = EvaluateDifference(leftExpr, rightExpr, x);
+                    fLo = fXi;
                     continue;
                 }
 
-                double xNew = x - f / fPrime;
-                f = EvaluateDifference(leftExpr, rightExpr, xNew);
+                if (Math.Abs(fXi) < Tolerance && !solutions.Any(s => Math.Abs(s - xi) < 0.5))
+                {
+                    solutions.Add(xi);
+                    fLo = fXi;
+                    continue;
+                }
 
-                if (Math.Abs(xNew - x) < Tolerance && Math.Abs(f) < Tolerance)
-                    return new[] { xNew };
+                if (fLo * fXi < 0)
+                {
+                    double a = xi - step, b = xi;
+                    double fA = fLo, fB = fXi;
+                    for (int bisect = 0; bisect < 80; bisect++)
+                    {
+                        double mid = (a + b) / 2.0;
+                        double fMid = SafeEval(leftExpr, rightExpr, mid);
+                        if (double.IsInfinity(fMid)) break;
+                        if (Math.Abs(fMid) < Tolerance || (b - a) / 2.0 < 1e-12)
+                        {
+                            if (!solutions.Any(s => Math.Abs(s - mid) < 1e-3))
+                                solutions.Add(mid);
+                            break;
+                        }
+                        if (fA * fMid < 0) { b = mid; fB = fMid; }
+                        else { a = mid; fA = fMid; }
+                    }
+                }
 
-                x = xNew;
+                fLo = fXi;
             }
 
-            double[] altGuesses = { -1.0, 2.0, -2.0, 0.5, -0.5, 3.0, -3.0, 0.0, 45.0, 90.0, 180.0 };
-            foreach (var guess in altGuesses)
+            // Refine each solution with Newton-Raphson
+            var refined = new List<double>();
+            foreach (double x0 in solutions)
             {
-                x = guess;
-                f = EvaluateDifference(leftExpr, rightExpr, x);
-
-                for (int iter = 0; iter < MaxIterations; iter++)
+                double x = x0;
+                for (int iter = 0; iter < 50; iter++)
                 {
-                    if (Math.Abs(f) < Tolerance)
-                        return new[] { x };
-
+                    double f = SafeEval(leftExpr, rightExpr, x);
+                    if (Math.Abs(f) < Tolerance) break;
                     double fPrime = NumericalDerivative(leftExpr, rightExpr, x);
-
-                    if (Math.Abs(fPrime) < 1e-14)
-                        break;
-
+                    if (Math.Abs(fPrime) < 1e-14) break;
                     double xNew = x - f / fPrime;
-                    f = EvaluateDifference(leftExpr, rightExpr, xNew);
-
-                    if (Math.Abs(xNew - x) < Tolerance && Math.Abs(f) < Tolerance)
-                        return new[] { xNew };
-
+                    if (Math.Abs(xNew - x) < 1e-12) break;
                     x = xNew;
                 }
+                double finalF = SafeEval(leftExpr, rightExpr, x);
+                if (Math.Abs(finalF) < 1e-6 && !refined.Any(r => Math.Abs(r - x) < 1e-3))
+                    refined.Add(Math.Round(x, 10));
             }
 
-            return Array.Empty<double>(); // No solution found
+            return refined.Count > 0 ? refined.ToArray() : Array.Empty<double>();
+        }
+
+        private static double SafeEval(string leftExpr, string rightExpr, double x)
+        {
+            try
+            {
+                return EvaluateDifference(leftExpr, rightExpr, x);
+            }
+            catch
+            {
+                return double.MaxValue;
+            }
         }
 
         /// <summary>
@@ -200,13 +224,15 @@ namespace AdvancedCalculaterBot.Services.Equations
         /// </summary>
         private static double EvaluateExpression(string expression, double x)
         {
-            var expr = new Expression(expression);
-            expr.Parameters["x"] = x;
-            expr.Parameters["pi"] = Math.PI;
-
-            expr.EvaluateFunction += (name, args) =>
+            try
             {
-                double paramValue = Convert.ToDouble(args.Parameters.Evaluate(0), CultureInfo.InvariantCulture);
+                var expr = new Expression(expression);
+                expr.Parameters["x"] = x;
+                expr.Parameters["pi"] = Math.PI;
+
+                expr.EvaluateFunction += (name, args) =>
+                {
+                    double paramValue = Convert.ToDouble(args.Parameters.Evaluate(0), CultureInfo.InvariantCulture);
 
                 switch (name.ToLowerInvariant())
                 {
@@ -240,9 +266,14 @@ namespace AdvancedCalculaterBot.Services.Equations
                 }
             };
 
-            var result = expr.Evaluate();
+var result = expr.Evaluate();
             return Convert.ToDouble(result, CultureInfo.InvariantCulture);
         }
+        catch
+        {
+            return double.MaxValue;
+        }
+    }
 
         /// <summary>
         /// Computes the numerical derivative using central difference.

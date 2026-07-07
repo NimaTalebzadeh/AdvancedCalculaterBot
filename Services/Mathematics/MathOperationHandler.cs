@@ -3,7 +3,8 @@ using System.Text.RegularExpressions;
 namespace AdvancedCalculaterBot.Services.Mathematics;
 
 /// <summary>
-/// Handles mathematical operation commands like solve(), d(), int(), lim(), simplify(), expand(), factor().
+/// Handles mathematical operation commands like d(), int(), lim(), simplify(), expand(), factor().
+/// Equations (e.g. x^2=4) are handled directly by EquationSolverService in Program.cs.
 /// </summary>
 public static class MathOperationHandler
 {
@@ -13,7 +14,6 @@ public static class MathOperationHandler
     {
         _operationHandlers = new Dictionary<string, Func<string[], MathResult>>(StringComparer.OrdinalIgnoreCase)
         {
-            ["solve"] = args => HandleSolve(args),
             ["d"] = args => HandleDerivative(args),
             ["int"] = args => HandleIntegral(args),
             ["lim"] = args => HandleLimit(args),
@@ -95,26 +95,38 @@ public static class MathOperationHandler
         return args.ToArray();
     }
 
-    private static MathResult HandleSolve(string[] args)
-    {
-        if (args.Length == 0)
-            return MathResult.ErrorResult("solve() requires at least one argument.");
-
-        string expression = args[0];
-        string variable = args.Length > 1 ? args[1] : "x";
-
-        return MathOperations.Solve(expression, variable);
-    }
-
     private static MathResult HandleDerivative(string[] args)
     {
         if (args.Length == 0)
             return MathResult.ErrorResult("d() requires at least one argument.");
 
         string expression = args[0];
-        string variable = args.Length > 1 ? args[1] : "x";
+        string variable = "x";
+        int order = 1;
 
-        return MathOperations.Derivative(expression, variable);
+        if (args.Length >= 2)
+        {
+            // Second arg could be variable name or order number
+            if (int.TryParse(args[1], out int parsedOrder) && parsedOrder > 0)
+            {
+                order = parsedOrder;
+            }
+            else
+            {
+                variable = args[1];
+            }
+        }
+
+        if (args.Length >= 3)
+        {
+            // Third arg is the order
+            if (int.TryParse(args[2], out int parsedOrder) && parsedOrder > 0)
+                order = parsedOrder;
+            else
+                return MathResult.ErrorResult("Derivative order must be a positive integer.");
+        }
+
+        return MathOperations.Derivative(expression, variable, order);
     }
 
     private static MathResult HandleIntegral(string[] args)
@@ -137,16 +149,79 @@ public static class MathOperationHandler
         }
         else if (args.Length == 3)
         {
-            if (!double.TryParse(args[1], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double lower))
-                return MathResult.ErrorResult("Lower limit must be a number.");
+            // Could be int(expr, var1, var2) for multiple integral
+            // or int(expr, lower, upper) for definite integral
+            string secondArg = args[1];
+            string thirdArg = args[2];
 
-            if (!double.TryParse(args[2], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double upper))
-                return MathResult.ErrorResult("Upper limit must be a number.");
+            bool secondIsNum = double.TryParse(secondArg, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double lower);
+            bool thirdIsNum = double.TryParse(thirdArg, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double upper);
 
-            return MathOperations.Integral(expression, "x", lower, upper);
+            if (secondIsNum && thirdIsNum)
+            {
+                // int(expr, lower, upper) - definite single integral
+                return MathOperations.Integral(expression, "x", lower, upper);
+            }
+            else if (!secondIsNum && !thirdIsNum)
+            {
+                // int(expr, var1, var2) - multiple integral
+                return MathOperations.MultipleIntegral(expression, new[] { secondArg, thirdArg });
+            }
+            else
+            {
+                return MathResult.ErrorResult("Invalid arguments. Use int(expr, var1, var2) for multiple integral or int(expr, lower, upper) for definite integral.");
+            }
+        }
+        else if (args.Length == 4)
+        {
+            // int(expr, var, lower, upper) - definite integral with specific variable
+            string variable = args[1];
+            if (double.TryParse(args[2], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double lo) &&
+                double.TryParse(args[3], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double hi))
+            {
+                return MathOperations.Integral(expression, variable, lo, hi);
+            }
+            return MathResult.ErrorResult("Lower and upper limits must be numbers.");
+        }
+        else if (args.Length == 5)
+        {
+            // int(expr, var1, var2, var3, var4) - could be double integral with mixed args
+            // Try: int(expr, var1, a, b, var2) -> error or int(expr, var1, var2, var3, var4) -> triple indefinite?
+            // Let's support: int(expr, x, 0, 1, y) - not standard, skip for now
+            return MathResult.ErrorResult("int() with 5 arguments not supported. Use int(expr, var1, var2) for multiple integral.");
+        }
+        else if (args.Length == 6)
+        {
+            // int(expr, var1, a, b, var2, c, d) -> 7 args, but we check 6 here
+            // Actually int(expr, x, 0, 1, y, 0, 1) would be 7 args
+            // int(expr, x, y, z) would be 4 args for triple integral
+            return MathResult.ErrorResult("int() with 6 arguments not supported.");
+        }
+        else if (args.Length == 7)
+        {
+            // int(expr, var1, lower1, upper1, var2, lower2, upper2) - double definite integral
+            string var1 = args[1];
+            string var2 = args[4];
+
+            if (double.TryParse(args[2], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double lo1) &&
+                double.TryParse(args[3], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double hi1) &&
+                double.TryParse(args[5], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double lo2) &&
+                double.TryParse(args[6], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double hi2))
+            {
+                return MathOperations.DoubleDefiniteIntegral(expression, var1, lo1, hi1, var2, lo2, hi2);
+            }
+            return MathResult.ErrorResult("All limits must be numbers.");
+        }
+        else if (args.Length == 8)
+        {
+            // int(expr, var1, var2, var3) for triple indefinite integral
+            // Actually with 8 args: int(expr, x, 0, 1, y, 0, 1, z) - unlikely
+            // Let's just support triple indefinite: int(expr, x, y, z)
+            // which is 4 args, not 8
+            return MathResult.ErrorResult("int() with 8 arguments not supported.");
         }
 
-        return MathResult.ErrorResult("int() takes 1, 2, or 3 arguments.");
+        return MathResult.ErrorResult("int() takes 1 to 7 arguments.");
     }
 
     private static MathResult HandleLimit(string[] args)
