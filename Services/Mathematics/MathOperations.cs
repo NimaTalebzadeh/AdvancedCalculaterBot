@@ -36,13 +36,39 @@ public static class MathOperations
             if (!ContainsVariable(expression))
                 return MathResult.ErrorResult($"Equation must contain variable '{variable}'.");
 
-            double[] coeffs = GetDifferenceCoeffs(lhs, rhs);
-            Complex[] roots = SolveFromCoefficients(coeffs);
+            // First, try to solve as a polynomial equation
+            try
+            {
+                double[] coeffs = GetDifferenceCoeffs(lhs, rhs);
+                Complex[] roots = SolveFromCoefficients(coeffs);
 
-            if (roots.Length == 0)
-                return MathResult.ErrorResult("No solution found.");
+                // If we found solutions, return them
+                if (roots.Length > 0)
+                    return MathResult.SuccessResult(expression, roots);
+            }
+            catch
+            {
+                // Not a polynomial equation, fall through to general solver
+            }
 
-            return MathResult.SuccessResult(expression, roots);
+            // Fall back to the general equation solver
+            // which can handle transcendental equations like sin(x) = 1
+            string solution = EquationSolverService.Solve(expression);
+            
+            // Check if the solver returned an error message
+            if (solution.StartsWith("Sorry, I couldn't parse") || 
+                solution.StartsWith("That doesn't look like an equation") ||
+                solution.StartsWith("Please provide an equation") ||
+                solution.StartsWith("Equation must have") ||
+                solution.StartsWith("Only equations in the variable") ||
+                solution.StartsWith("No solution found") ||
+                solution.StartsWith("Infinite solutions.") ||
+                solution.StartsWith("No solution."))
+            {
+                return MathResult.ErrorResult(solution);
+            }
+            
+            return MathResult.SuccessResult(expression, solution);
         }
         catch (Exception ex)
         {
@@ -52,7 +78,7 @@ public static class MathOperations
 
     /// <summary>
     /// Computes the derivative with respect to the default variable.
-    /// </summary>
+    /// </>
     public static MathResult Derivative(string expression, string variable = "x")
     {
         try
@@ -61,9 +87,6 @@ public static class MathOperations
 
             if (string.IsNullOrWhiteSpace(expression))
                 return MathResult.ErrorResult("Expression cannot be empty.");
-
-            if (!ContainsVariable(expression))
-                return MathResult.ErrorResult($"Expression must contain variable '{variable}'.");
 
             string derivative = ComputeDerivative(expression, variable);
             return MathResult.SuccessResult($"d({expression}, {variable})", derivative);
@@ -286,12 +309,12 @@ public static class MathOperations
     {
         expression = NormalizeExpression(expression);
 
-        if (expression.Contains(variable))
-        {
-            string derivative = PolynomialDerivative(expression, variable);
-            if (!string.IsNullOrEmpty(derivative))
-                return derivative;
-        }
+        if (!expression.Contains(variable))
+            return "0";
+
+        string derivative = PolynomialDerivative(expression, variable);
+        if (!string.IsNullOrEmpty(derivative))
+            return derivative;
 
         return "Derivative not supported for this expression type.";
     }
@@ -359,9 +382,8 @@ public static class MathOperations
         double result = 0;
         foreach (var term in terms)
         {
-            double newCoefficient = term.Coefficient / (term.Power + 1);
-            double lowerTerm = newCoefficient * (Math.Pow(lower, term.Power + 1) / (term.Power + 1));
-            double upperTerm = newCoefficient * (Math.Pow(upper, term.Power + 1) / (term.Power + 1));
+            double lowerTerm = term.Coefficient * Math.Pow(lower, term.Power + 1) / (term.Power + 1);
+            double upperTerm = term.Coefficient * Math.Pow(upper, term.Power + 1) / (term.Power + 1);
             result += upperTerm - lowerTerm;
         }
 
@@ -459,32 +481,39 @@ public static class MathOperations
         if (terms.Count <= 1)
             return expression;
 
-        double firstTermCoeff = terms[0].Coefficient;
-        double commonFactor = FindGreatestCommonDivisor(terms.Select(t => t.Coefficient));
+        var nonZeroCoeffs = terms.Where(t => Math.Abs(t.Coefficient) > ZeroTolerance).Select(t => t.Coefficient).ToList();
+        if (nonZeroCoeffs.Count == 0)
+            return expression;
 
-        if (Math.Abs(commonFactor) > ZeroTolerance)
+        double absGcd = Math.Abs(nonZeroCoeffs[0]);
+        for (int i = 1; i < nonZeroCoeffs.Count; i++)
+            absGcd = GCD(absGcd, Math.Abs(nonZeroCoeffs[i]));
+
+        if (absGcd < ZeroTolerance)
+            return expression;
+
+        double sign = nonZeroCoeffs[0] < 0 ? -1 : 1;
+        double commonFactor = sign * absGcd;
+
+        if (Math.Abs(commonFactor - 1) < ZeroTolerance || Math.Abs(commonFactor + 1) < ZeroTolerance)
+            return expression;
+
+        var factoredTerms = terms.Select(t => (Coefficient: t.Coefficient / commonFactor, Power: t.Power)).ToList();
+
+        var termStrings = factoredTerms.Select(t =>
         {
-            var factoredTerms = terms.Select(t => new
-            {
-                Coefficient = t.Coefficient / commonFactor,
-                Power = t.Power
-            }).ToList();
+            double c = t.Coefficient;
+            if (Math.Abs(c) < ZeroTolerance) return null;
+            if (t.Power == 0) return c.ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
+            if (Math.Abs(c - 1) < ZeroTolerance) return t.Power == 1 ? "x" : $"x^{t.Power}";
+            if (Math.Abs(c + 1) < ZeroTolerance) return t.Power == 1 ? "-x" : $"-x^{t.Power}";
+            return t.Power == 1 ? $"{c}*x" : $"{c}*x^{t.Power}";
+        }).Where(s => s != null).ToList();
 
-            string factorStr = Math.Abs(commonFactor - 1) < ZeroTolerance ? "" : $"{commonFactor}*";
+        if (termStrings.Count == 0)
+            return expression;
 
-            var factorizedTerms = factoredTerms.Select(t =>
-            {
-                if (t.Power == 0)
-                    return t.Coefficient.ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
-                if (t.Power == 1)
-                    return $"{t.Coefficient}*x";
-                return $"{t.Coefficient}*x^{t.Power}";
-            }).ToList();
-
-            return $"{factorStr}({string.Join(" + ", factorizedTerms)})";
-        }
-
-        return expression;
+        return $"{commonFactor}({string.Join(" + ", termStrings)})";
     }
 
     private static double FindGreatestCommonDivisor(IEnumerable<double> numbers)
@@ -517,23 +546,58 @@ public static class MathOperations
 
     private static System.Collections.Generic.List<(double Coefficient, int Power)> ParsePolynomialTerms(string expression)
     {
-        var terms = new System.Collections.Generic.List<(double, int)>();
-        var matches = Regex.Matches(expression, @"([+-]?\s*\d*\.?\d*)\s*x\^?(\d*)");
+        var terms = new System.Collections.Generic.List<(double Coefficient, int Power)>();
 
-        foreach (System.Text.RegularExpressions.Match match in matches)
+        string remaining = expression;
+
+        var xMatches = Regex.Matches(remaining, @"([+-]?\s*\d*\.?\d*)\s*x\^?(\d*)");
+
+        var matchedRanges = new List<(int Start, int Length)>();
+        foreach (System.Text.RegularExpressions.Match match in xMatches)
         {
             string coeffStr = match.Groups[1].Value;
             string powerStr = match.Groups[2].Value;
 
-            double coefficient = string.IsNullOrEmpty(coeffStr) || coeffStr == "+" || coeffStr == "-"
-                ? (coeffStr == "-" ? -1 : 1)
-                : double.Parse(coeffStr, System.Globalization.CultureInfo.InvariantCulture);
+            double coefficient = string.IsNullOrEmpty(coeffStr) || coeffStr.Trim() == "+" || coeffStr.Trim() == "-"
+                ? (coeffStr.Trim() == "-" ? -1 : 1)
+                : double.Parse(coeffStr.Replace(" ", ""), System.Globalization.CultureInfo.InvariantCulture);
 
             int power = string.IsNullOrEmpty(powerStr) ? 1 : int.Parse(powerStr, System.Globalization.CultureInfo.InvariantCulture);
 
             terms.Add((coefficient, power));
+            matchedRanges.Add((match.Index, match.Length));
         }
 
-        return terms;
+        for (int i = matchedRanges.Count - 1; i >= 0; i--)
+        {
+            remaining = remaining.Substring(0, matchedRanges[i].Start) + remaining.Substring(matchedRanges[i].Start + matchedRanges[i].Length);
+        }
+
+        remaining = remaining.Trim();
+
+        if (remaining.Length > 0)
+        {
+            string cleaned = remaining.Replace(" ", "").TrimStart('+');
+            if (cleaned.Length > 0 && double.TryParse(cleaned, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double constVal))
+            {
+                terms.Add((constVal, 0));
+            }
+        }
+
+        var grouped = new System.Collections.Generic.Dictionary<int, double>();
+        foreach (var term in terms)
+        {
+            if (grouped.ContainsKey(term.Power))
+                grouped[term.Power] += term.Coefficient;
+            else
+                grouped[term.Power] = term.Coefficient;
+        }
+
+        var result = grouped
+            .Select(kv => (Coefficient: kv.Value, Power: kv.Key))
+            .OrderByDescending(t => t.Power)
+            .ToList();
+
+        return result;
     }
 }

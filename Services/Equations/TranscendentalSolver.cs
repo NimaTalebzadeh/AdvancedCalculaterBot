@@ -50,11 +50,13 @@ namespace AdvancedCalculaterBot.Services.Equations
 
             for (int iter = 0; iter < MaxIterations; iter++)
             {
+                if (Math.Abs(f) < Tolerance)
+                    return new[] { x };
+
                 double fPrime = NumericalDerivative(leftExpr, rightExpr, x);
 
-                if (Math.Abs(fPrime) < Tolerance)
+                if (Math.Abs(fPrime) < 1e-14)
                 {
-                    // Derivative too small, try a different guess
                     x = x + 0.5;
                     f = EvaluateDifference(leftExpr, rightExpr, x);
                     continue;
@@ -64,15 +66,12 @@ namespace AdvancedCalculaterBot.Services.Equations
                 f = EvaluateDifference(leftExpr, rightExpr, xNew);
 
                 if (Math.Abs(xNew - x) < Tolerance && Math.Abs(f) < Tolerance)
-                {
                     return new[] { xNew };
-                }
 
                 x = xNew;
             }
 
-            // Try alternative starting points
-            double[] altGuesses = { -1.0, 2.0, -2.0, 0.5, -0.5, 3.0, -3.0, 0.0 };
+            double[] altGuesses = { -1.0, 2.0, -2.0, 0.5, -0.5, 3.0, -3.0, 0.0, 45.0, 90.0, 180.0 };
             foreach (var guess in altGuesses)
             {
                 x = guess;
@@ -80,18 +79,19 @@ namespace AdvancedCalculaterBot.Services.Equations
 
                 for (int iter = 0; iter < MaxIterations; iter++)
                 {
+                    if (Math.Abs(f) < Tolerance)
+                        return new[] { x };
+
                     double fPrime = NumericalDerivative(leftExpr, rightExpr, x);
 
-                    if (Math.Abs(fPrime) < Tolerance)
+                    if (Math.Abs(fPrime) < 1e-14)
                         break;
 
                     double xNew = x - f / fPrime;
                     f = EvaluateDifference(leftExpr, rightExpr, xNew);
 
                     if (Math.Abs(xNew - x) < Tolerance && Math.Abs(f) < Tolerance)
-                    {
                         return new[] { xNew };
-                    }
 
                     x = xNew;
                 }
@@ -106,65 +106,77 @@ namespace AdvancedCalculaterBot.Services.Equations
         /// </summary>
         private static string PreprocessForNCalc(string expression)
         {
-            var sb = new System.Text.StringBuilder();
-            expression = expression.Trim();
+            string result = expression;
 
-            for (int i = 0; i < expression.Length; i++)
+            result = ReplaceTrigWithRadians(result, "sin");
+            result = ReplaceTrigWithRadians(result, "cos");
+            result = ReplaceTrigWithRadians(result, "tan");
+            result = ReplaceTrigWithRadians(result, "asin", true);
+            result = ReplaceTrigWithRadians(result, "acos", true);
+            result = ReplaceTrigWithRadians(result, "atan", true);
+
+            var sb = new System.Text.StringBuilder();
+            result = result.Trim();
+
+            for (int i = 0; i < result.Length; i++)
             {
-                char current = expression[i];
+                char current = result[i];
                 sb.Append(current);
 
-                if (i == expression.Length - 1) break;
+                if (i == result.Length - 1) break;
 
-                char next = expression[i + 1];
+                char next = result[i + 1];
                 bool shouldAddStar = false;
 
-                // Case 1: Digit followed by letter or parenthesis (e.g., ""2x"" -> ""2*x"", ""2sin"" -> ""2*sin"", ""2("" -> ""2*(")
                 if (char.IsDigit(current) && (char.IsLetter(next) || next == '('))
-                {
                     shouldAddStar = true;
-                }
-                // Case 2: Closing parenthesis followed by letter, digit, or parenthesis (e.g., "")x"" -> "")*x"", "")2"" -> "")*2"", "")("" -> "")*(")
                 else if (current == ')' && (char.IsLetter(next) || char.IsDigit(next) || next == '('))
-                {
                     shouldAddStar = true;
-                }
-                // Case 3: Letter followed by parenthesis, but ONLY if it's NOT a known function name
-                // (e.g., ""x("" -> ""x*("" but ""sin("" should remain ""sin("")
                 else if (char.IsLetter(current) && next == '(')
                 {
-                    // Look backwards to see if we have a complete function name
                     int j = i;
-                    while (j >= 0 && char.IsLetter(expression[j]))
-                    {
+                    while (j >= 0 && char.IsLetter(result[j]))
                         j--;
-                    }
-                    j++; // j now points to the first letter of the potential function name
-                    
+                    j++;
                     int length = i - j + 1;
-                    if (length > 0 && length <= 20) // Reasonable limit for function name length
+                    if (length > 0 && length <= 20)
                     {
-                        string potentialFunc = expression.Substring(j, length).ToLowerInvariant();
-                        
-                        // Check if this is a known function name
-                        bool isKnownFunction = 
-                            IsEqualIgnoreCase(potentialFunc, "sin") || IsEqualIgnoreCase(potentialFunc, "cos") ||
-                            IsEqualIgnoreCase(potentialFunc, "tan") || IsEqualIgnoreCase(potentialFunc, "log") ||
-                            IsEqualIgnoreCase(potentialFunc, "ln") || IsEqualIgnoreCase(potentialFunc, "exp") ||
-                            IsEqualIgnoreCase(potentialFunc, "asin") || IsEqualIgnoreCase(potentialFunc, "acos") ||
-                            IsEqualIgnoreCase(potentialFunc, "atan");
-                            
-                        shouldAddStar = !isKnownFunction; // Add * ONLY if it's NOT a known function
+                        string potentialFunc = result.Substring(j, length).ToLowerInvariant();
+                        bool isKnownFunction =
+                            potentialFunc == "sin" || potentialFunc == "cos" ||
+                            potentialFunc == "tan" || potentialFunc == "log" ||
+                            potentialFunc == "ln" || potentialFunc == "exp" ||
+                            potentialFunc == "asin" || potentialFunc == "acos" ||
+                            potentialFunc == "atan";
+                        shouldAddStar = !isKnownFunction;
                     }
                 }
 
                 if (shouldAddStar)
-                {
                     sb.Append('*');
-                }
             }
 
             return sb.ToString();
+        }
+
+        private static string ReplaceTrigWithRadians(string expression, string funcName, bool inverseTrig = false)
+        {
+            return expression;
+        }
+
+        private static int FindMatchingParen(string s, int openIndex)
+        {
+            int depth = 0;
+            for (int i = openIndex; i < s.Length; i++)
+            {
+                if (s[i] == '(') depth++;
+                else if (s[i] == ')')
+                {
+                    depth--;
+                    if (depth == 0) return i;
+                }
+            }
+            return -1;
         }
 
         private static bool IsEqualIgnoreCase(string a, string b)
@@ -190,75 +202,37 @@ namespace AdvancedCalculaterBot.Services.Equations
         {
             var expr = new Expression(expression);
             expr.Parameters["x"] = x;
+            expr.Parameters["pi"] = Math.PI;
 
-            // Define trigonometric functions that accept degrees
             expr.EvaluateFunction += (name, args) =>
             {
-                // Get the string representation of the parameter expression
-                string paramString = args.Parameters[0]?.ToString() ?? string.Empty;
-                double paramValue = 0.0;
-
-                // Try to evaluate the parameter
-                try
-                {
-                    // Create a new expression from the parameter string and evaluate it with the current x
-                    var paramExpr = new Expression(paramString);
-                    paramExpr.Parameters["x"] = x;
-                    paramValue = Convert.ToDouble(paramExpr.Evaluate(), CultureInfo.InvariantCulture);
-                }
-                catch
-                {
-                    // If evaluation fails, try to parse the string as a number
-                    if (double.TryParse(paramString, NumberStyles.Any, CultureInfo.InvariantCulture, out double parsed))
-                    {
-                        paramValue = parsed;
-                    }
-                    else
-                    {
-                        // If all else fails, use 0 to avoid breaking the solver
-                        paramValue = 0.0;
-                    }
-                }
+                double paramValue = Convert.ToDouble(args.Parameters.Evaluate(0), CultureInfo.InvariantCulture);
 
                 switch (name.ToLowerInvariant())
                 {
                     case "sin":
-                        args.Result = Math.Sin(DegreesToRadians(paramValue));
+                        args.Result = Math.Sin(paramValue * Math.PI / 180.0);
                         break;
                     case "cos":
-                        args.Result = Math.Cos(DegreesToRadians(paramValue));
+                        args.Result = Math.Cos(paramValue * Math.PI / 180.0);
                         break;
                     case "tan":
-                        args.Result = Math.Tan(DegreesToRadians(paramValue));
+                        args.Result = Math.Tan(paramValue * Math.PI / 180.0);
                         break;
                     case "asin":
-                        // Clamp the value to [-1, 1] to avoid domain errors
-                        double clamped = Math.Max(-1, Math.Min(1, paramValue));
-                        double asinResult = Math.Asin(clamped);
-                        args.Result = RadiansToDegrees(asinResult);
+                        args.Result = Math.Asin(Math.Max(-1, Math.Min(1, paramValue))) * 180.0 / Math.PI;
                         break;
                     case "acos":
-                        // Clamp the value to [-1, 1] to avoid domain errors
-                        double clampedAcos = Math.Max(-1, Math.Min(1, paramValue));
-                        double acosResult = Math.Acos(clampedAcos);
-                        args.Result = RadiansToDegrees(acosResult);
+                        args.Result = Math.Acos(Math.Max(-1, Math.Min(1, paramValue))) * 180.0 / Math.PI;
                         break;
                     case "atan":
-                        args.Result = RadiansToDegrees(Math.Atan(paramValue));
+                        args.Result = Math.Atan(paramValue) * 180.0 / Math.PI;
                         break;
                     case "log":
-                        // log base 10, protect against non-positive values
-                        if (paramValue <= 0)
-                            args.Result = double.NaN;
-                        else
-                            args.Result = Math.Log10(paramValue);
+                        args.Result = paramValue <= 0 ? double.NaN : Math.Log10(paramValue);
                         break;
                     case "ln":
-                        // natural log, protect against non-positive values
-                        if (paramValue <= 0)
-                            args.Result = double.NaN;
-                        else
-                            args.Result = Math.Log(paramValue);
+                        args.Result = paramValue <= 0 ? double.NaN : Math.Log(paramValue);
                         break;
                     case "exp":
                         args.Result = Math.Exp(paramValue);

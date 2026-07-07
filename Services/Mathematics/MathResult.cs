@@ -58,6 +58,12 @@ public class MathResult
             return $"{complex.Real.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)}+{complex.Imaginary.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)}i";
         }
 
+        if (value is Complex[] complexArray)
+            return Equations.ComplexFormatter.FormatRoots(complexArray);
+
+        if (value is string s)
+            return s;
+
         return value.ToString() ?? "null";
     }
 
