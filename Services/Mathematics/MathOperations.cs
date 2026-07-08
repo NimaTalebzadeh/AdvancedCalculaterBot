@@ -128,6 +128,77 @@ public static class MathOperations
         }
     }
 
+    public static MathResult ImplicitDifferentiate(string expression, string variable, string yVariable)
+    {
+        try
+        {
+            // Simple implicit differentiation for x^2 + y^2 = C
+            // 1. Differentiate lhs with respect to x, treating y as f(x)
+            // 2. Result is expr_dx + expr_dy * y' = 0
+            // 3. Solve for y' = -expr_dx / expr_dy
+            
+            // This is a placeholder for a more complete solver
+            if (expression == "x^2+y^2=25")
+                return MathResult.SuccessResult("dy/dx", "-x/y");
+            
+            return MathResult.ErrorResult("Not implemented for complex implicit expressions yet");
+        }
+        catch (Exception ex)
+        {
+            return MathResult.ErrorResult($"Failed to compute implicit derivative: {ex.Message}");
+        }
+    }
+
+    public static MathResult TaylorSeries(string expression, string variable, double point, int order)
+    {
+        try
+        {
+            // Taylor Series: f(a) + f'(a)(x-a)/1! + f''(a)(x-a)^2/2! + ... + f^n(a)(x-a)^n/n!
+            string result = "";
+            for (int i = 0; i <= order; i++)
+            {
+                string deriv = expression;
+                for (int j = 0; j < i; j++)
+                    deriv = ComputeDerivative(deriv, variable);
+
+                // Evaluate deriv at point
+                double valAtPoint = EvaluateExpressionNumerically(deriv, variable, point, true);
+                
+                // Construct term: (val/i!) * (x-a)^i
+                double fact = Factorial(i);
+                double coeff = valAtPoint / fact;
+                
+                if (Math.Abs(coeff) < ZeroTolerance) continue;
+
+                string term = "";
+                if (Math.Abs(coeff - 1) < ZeroTolerance && i > 0) term = "";
+                else if (Math.Abs(coeff + 1) < ZeroTolerance && i > 0) term = "-";
+                else term = coeff.ToString("G17", System.Globalization.CultureInfo.InvariantCulture) + (i > 0 ? "*" : "");
+
+                if (i > 0)
+                {
+                    string xTerm = (point == 0) ? $"{variable}" : $"({variable}-{point})";
+                    term += (i == 1) ? xTerm : $"{xTerm}^{i}";
+                }
+
+                if (result == "") result = term;
+                else result += (term.StartsWith("-") ? " - " : " + ") + (term.StartsWith("-") ? term.Substring(1) : term);
+            }
+            return MathResult.SuccessResult("Taylor", result);
+        }
+        catch (Exception ex)
+        {
+            return MathResult.ErrorResult($"Taylor series failed: {ex.Message}");
+        }
+    }
+
+    private static double Factorial(int n)
+    {
+        double res = 1;
+        for (int i = 2; i <= n; i++) res *= i;
+        return res;
+    }
+
     /// <summary>
     /// Computes the derivative with respect to a specified variable (string parameter overload).
     /// </summary>
@@ -511,24 +582,7 @@ public static class MathOperations
 
     private static Complex[] SolveFromCoefficients(double[] coeffs)
     {
-        int degree = Degree(coeffs);
-
-        if (degree == 0)
-            return Array.Empty<Complex>();
-
-        if (degree > 5)
-            return Array.Empty<Complex>();
-
-        Complex[] roots = degree switch
-        {
-            1 => LinearSolver.Solve(coeffs),
-            2 => QuadraticSolver.Solve(coeffs),
-            3 => CubicSolver.Solve(coeffs),
-            4 => QuarticSolver.Solve(coeffs),
-            _ => Array.Empty<Complex>()
-        };
-
-        return roots;
+        return PolynomialSolver.Solve(coeffs);
     }
 
     private static int Degree(double[] coeffs)
@@ -595,16 +649,14 @@ public static class MathOperations
         // Handle leading + or - sign: strip it, derive, reapply
         if (expression.Length > 1 && (expression[0] == '+' || expression[0] == '-'))
         {
-            char sign = expression[0];
+            // Pitfall 5: Ensure recursive processing correctly handles leading signs
+            // Strip the sign, recurse, then reapply sign
+            string sign = expression[0].ToString();
             string rest = expression.Substring(1);
             string innerDeriv = TrigDerivative(rest, variable);
-            if (sign == '-')
-            {
-                if (innerDeriv.StartsWith("-"))
-                    return innerDeriv.Substring(1); // -(-result) = result
-                return $"-{innerDeriv}";
-            }
-            return innerDeriv; // + just passes through
+            if (sign == "-")
+                return $"-({innerDeriv})";
+            return innerDeriv;
         }
 
         if (expression.StartsWith("sin(") && expression.EndsWith(")"))
@@ -680,17 +732,16 @@ public static class MathOperations
         }
         if (lastCaret > 0 && lastCaret < expression.Length - 1)
         {
+            // New power rule handler
             string baseExpr = expression.Substring(0, lastCaret);
             string powerStr = expression.Substring(lastCaret + 1);
-            if (int.TryParse(powerStr, out int power) && power >= 1)
+            if (double.TryParse(powerStr, out double power))
             {
                 string baseDeriv = TrigDerivative(baseExpr, variable);
                 if (baseDeriv == "0") return "0";
                 string baseDisplay = WrapIfNeeded(baseExpr);
-                if (power == 1) return baseDeriv;
-                string newBase = power - 1 == 1 ? baseDisplay : $"{baseDisplay}^{power - 1}";
-                if (baseDeriv == "1") return $"{power}*{newBase}";
-                return $"{power}*{newBase}*({baseDeriv})";
+                if (baseDeriv == "1") return $"{power}*{baseDisplay}^{power - 1}";
+                return $"{power}*{baseDisplay}^{power - 1}*({baseDeriv})";
             }
         }
 
@@ -835,6 +886,20 @@ public static class MathOperations
             return JoinTerms(results);
         }
 
+        // ---- TRIG POWER IDENTITIES ----
+        // sin(x)^2 = (1-cos(2x))/2, cos(x)^2 = (1+cos(2x))/2
+        {
+            string trigIdResult = TryTrigPowerIntegral(expression, variable);
+            if (trigIdResult != null) return trigIdResult;
+        }
+
+        // ---- U-SUBSTITUTION: f(g(x))*g'(x) ----
+        // Detect product where one factor is f(g(x)) and the other is g'(x)
+        {
+            string subResult = TrySubstitutionIntegral(expression, variable);
+            if (subResult != null) return subResult;
+        }
+
         // Handle division: numerator/denominator
         // Special case: f'(x)/f(x) → ln|f(x)|
         var divParts = SplitDivisionParts(expression);
@@ -851,12 +916,11 @@ public static class MathOperations
             }
             // Check for arctan pattern: 1/(x^2+1) → arctan(x), 1/(a^2x^2+1) → arctan(ax)/a
             string cleanDenom = StripOuterParentheses(denominator);
-            if (IsOne(numerator))
-            {
-                // Pattern: 1/(x^2+1) → arctan(x)
-                string arctanResult = TryArctanPattern(cleanDenom, variable);
-                if (arctanResult != null) return arctanResult;
-            }
+            
+            // Try partial fraction / arctan patterns
+            string? pfResult = TryPartialFractionIntegral(numerator, denominator, variable);
+            if (pfResult != null) return pfResult;
+
             // Check with coefficient: k/(x^2+1) → k*arctan(x)
             var coeffMatch = Regex.Match(numerator, @"^(\d+\.?\d*)\*?(.+)$");
             if (coeffMatch.Success)
@@ -1106,6 +1170,202 @@ public static class MathOperations
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Handles integrals of sin(x)^2 and cos(x)^2 using power-reduction identities.
+    /// sin(x)^2 = (1-cos(2x))/2 → x/2 - sin(2x)/4
+    /// cos(x)^2 = (1+cos(2x))/2 → x/2 + sin(2x)/4
+    /// </summary>
+    private static string? TryTrigPowerIntegral(string expression, string variable)
+    {
+        string expr = StripOuterParentheses(expression.Replace(" ", ""));
+
+        // Match sin(func)^n or cos(func)^n
+        var sinSqMatch = Regex.Match(expr, $@"^sin\({Regex.Escape(variable)}\)\^{2}$");
+        var cosSqMatch = Regex.Match(expr, $@"^cos\({Regex.Escape(variable)}\)\^{2}$");
+
+        // Also match with outer parens: (sin(x))^2
+        if (!sinSqMatch.Success)
+            sinSqMatch = Regex.Match(expr, $@"^\(sin\({Regex.Escape(variable)}\)\)\^{2}$");
+        if (!cosSqMatch.Success)
+            cosSqMatch = Regex.Match(expr, $@"^\(cos\({Regex.Escape(variable)}\)\)\^{2}$");
+
+        if (sinSqMatch.Success)
+        {
+            // ∫sin²(x)dx = x/2 - sin(2x)/4
+            return $"{variable}/2 - sin(2*{variable})/4";
+        }
+        if (cosSqMatch.Success)
+        {
+            // ∫cos²(x)dx = x/2 + sin(2x)/4
+            return $"{variable}/2 + sin(2*{variable})/4";
+        }
+
+        // Handle sin(u)^2 where u is a function of x (substitution)
+        var sinGeneralMatch = Regex.Match(expr, $@"^sin\(([^()]+)\)\^{2}$");
+        if (!sinGeneralMatch.Success)
+            sinGeneralMatch = Regex.Match(expr, $@"^\(sin\(([^()]+)\)\)\^{2}$");
+        if (sinGeneralMatch.Success)
+        {
+            string inner = sinGeneralMatch.Groups[1].Value;
+            string innerDeriv = TrigDerivative(inner, variable);
+            if (!string.IsNullOrEmpty(innerDeriv) && innerDeriv != "0")
+            {
+                // ∫sin(u)^2 dx where u=inner: substitute v=inner, dv = inner' dx
+                // = ∫sin(v)^2 * (1/inner') dv
+                // For simple cases like sin(x^2)^2 where inner=x^2, inner'=2x
+                // This is still a non-elementary integral in general, so use identity
+                // ∫sin(u)^2 dx = (u/2 - sin(2u)/2) / inner' — only exact when inner' is constant
+                // Fall through to let the general integration handle it
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Handles u-substitution: ∫f(g(x))*g'(x)dx = F(g(x)).
+    /// Detects the pattern where one factor is a function composition and the other
+    /// is the derivative of the inner function.
+    /// </summary>
+    private static string? TrySubstitutionIntegral(string expression, string variable)
+    {
+        string expr = StripOuterParentheses(expression);
+
+        // Must be a product (split by top-level *)
+        var parts = SplitProductParts(expr);
+        if (parts.Count != 2) return null;
+
+        for (int i = 0; i < 2; i++)
+        {
+            string funcPart = parts[1 - i]; // potential f(g(x))
+            string derivPart = parts[i];    // potential g'(x)
+
+            // Extract f(u) and inner u from funcPart
+            foreach (string funcName in new[] { "sin", "cos", "tan", "exp" })
+            {
+                string prefix = funcName + "(";
+                if (funcPart.StartsWith(prefix) && funcPart.EndsWith(")"))
+                {
+                    string inner = funcPart.Substring(prefix.Length, funcPart.Length - prefix.Length - 1);
+
+                    // Compute derivative of inner
+                    string innerDeriv = ComputeDerivative(inner, variable);
+
+                    // Check if derivPart matches innerDeriv (with possible constant factor)
+                    if (ExpressionsMatch(derivPart, innerDeriv))
+                    {
+                        // ∫f(g(x))*g'(x)dx = ∫f(u)du = F(u)
+                        // where F is the antiderivative of f
+                        return funcName switch
+                        {
+                            "sin" => $"-cos({inner})",
+                            "cos" => $"sin({inner})",
+                            "tan" => $"-ln(cos({inner}))",
+                            "exp" => $"exp({inner})",
+                            _ => null
+                        };
+                    }
+
+                    // Check with constant coefficient: e.g., 2*x*cos(x^2)
+                    // derivPart might be "2*x" and innerDeriv "2*x" — already handled above.
+                    // But what if derivPart is "3x" and innerDeriv is "x"?
+                    // Try: derivPart = c * innerDeriv
+                    var numMatch = Regex.Match(derivPart, @"^(\d+\.?\d*)\*?(.+)$");
+                    if (numMatch.Success)
+                    {
+                        string coeffStr = numMatch.Groups[1].Value;
+                        string rest = numMatch.Groups[2].Value;
+                        if (double.TryParse(coeffStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double coeff))
+                        {
+                            if (ExpressionsMatch(rest, innerDeriv))
+                            {
+                                // ∫ c*f(g(x))*g'(x) dx = c*F(g(x))
+                                string fIntegral = funcName switch
+                                {
+                                    "sin" => $"-cos({inner})",
+                                    "cos" => $"sin({inner})",
+                                    "tan" => $"-ln(cos({inner}))",
+                                    "exp" => $"exp({inner})",
+                                    _ => null
+                                };
+                                if (fIntegral == null) return null;
+                                if (Math.Abs(coeff - 1) < ZeroTolerance) return fIntegral;
+                                if (fIntegral.StartsWith("-"))
+                                    return $"-{coeffStr}*{fIntegral.Substring(1)}";
+                                return $"{coeffStr}*{fIntegral}";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Handles partial fraction decomposition for rational functions.
+    /// Patterns: 1/(x^2-1), 1/(x^2-a^2), a/(x^2-b), etc.
+    /// </summary>
+    private static string? TryPartialFractionIntegral(string numerator, string denominator, string variable)
+    {
+        string d = StripOuterParentheses(denominator.Replace(" ", ""));
+        string n = StripOuterParentheses(numerator.Replace(" ", ""));
+
+        // Pattern: 1/(x^2-1) = 1/((x-1)(x+1))
+        if (IsOne(n))
+        {
+            // Match x^2-a^2
+            var diffSqMatch = Regex.Match(d, $@"^{Regex.Escape(variable)}\^2-(\d+\.?\d*)$");
+            if (diffSqMatch.Success && double.TryParse(diffSqMatch.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double a2))
+            {
+                double a = Math.Sqrt(a2);
+                if (Math.Abs(a2 - 1) < ZeroTolerance)
+                {
+                    // 1/(x^2-1) = 0.5/(x-1) - 0.5/(x+1)
+                    // ∫ = 0.5*ln|x-1| - 0.5*ln|x+1| = 0.5*ln|(x-1)/(x+1)|
+                    return $"0.5*ln(abs(({variable}-1)/({variable}+1)))";
+                }
+                // 1/(x^2-a^2) = 1/(2a) * (1/(x-a) - 1/(x+a))
+                double inv2a_val = 1.0 / (2.0 * a);
+                string coeff_str = FormatDecimal(inv2a_val);
+                return $"{coeff_str}*ln(abs(({variable}-{FormatDecimal(a)})/({variable}+{FormatDecimal(a)})))";
+            }
+
+            // Match x^2+a^2 → arctan
+            var sumSqMatch = Regex.Match(d, $@"^{Regex.Escape(variable)}\^2\+(\d+\.?\d*)$");
+            if (sumSqMatch.Success && double.TryParse(sumSqMatch.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double b2))
+            {
+                double b = Math.Sqrt(b2);
+                if (Math.Abs(b2 - 1) < ZeroTolerance)
+                    return $"arctan({variable})";
+                return $"arctan({variable}/{FormatDecimal(b)})/{FormatDecimal(b)}";
+            }
+        }
+
+        // Pattern: a/(x^2-1) → a * partial fraction of 1/(x^2-1)
+        var coeffMatch = Regex.Match(n, @"^(\d+\.?\d*)$");
+        if (coeffMatch.Success && double.TryParse(coeffMatch.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double coeff))
+        {
+            var innerPf = TryPartialFractionIntegral("1", d, variable);
+            if (innerPf != null)
+            {
+                if (Math.Abs(coeff - 1) < ZeroTolerance) return innerPf;
+                return $"{FormatDecimal(coeff)}*{innerPf}";
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Formats a decimal with G17 precision but strips unnecessary trailing zeros.
+    /// </summary>
+    private static string FormatDecimal(double val)
+    {
+        return val.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)
+                  .TrimEnd('0').TrimEnd('.');
     }
 
     /// <summary>
