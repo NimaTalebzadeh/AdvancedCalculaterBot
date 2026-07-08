@@ -17,6 +17,9 @@ public static class EquationSolverService
     /// </summary>
     public static string Solve(string equation)
     {
+        // Normalize e^(...) notation before solving
+        equation = NormalizeENotation(equation);
+
         int eq = equation.IndexOf('=');
         if (eq < 0)
             return "That doesn't look like an equation (no '=' found).";
@@ -141,5 +144,56 @@ public static class EquationSolverService
             if (Math.Abs(coeffs[i]) > ZeroTolerance)
                 return i;
         return 0;
+    }
+
+    /// <summary>
+    /// Converts e^(expr) notation to exp(expr) for proper handling.
+    /// </summary>
+    private static string NormalizeENotation(string expression)
+    {
+        var sb = new System.Text.StringBuilder();
+        int i = 0;
+        while (i < expression.Length)
+        {
+            if (i + 1 < expression.Length && expression[i] == 'e' && expression[i + 1] == '^')
+            {
+                i += 2; // skip e^
+                if (i < expression.Length && expression[i] == '(')
+                {
+                    // e^(...) - find matching close paren
+                    int depth = 1;
+                    i++; // skip opening (
+                    int innerStart = i;
+                    while (i < expression.Length && depth > 0)
+                    {
+                        if (expression[i] == '(') depth++;
+                        else if (expression[i] == ')') depth--;
+                        if (depth > 0) i++;
+                    }
+                    string inner = expression.Substring(innerStart, i - innerStart);
+                    sb.Append($"exp({inner})");
+                    i++; // skip closing )
+                }
+                else if (i < expression.Length)
+                {
+                    // e^x or e^2x (no parens) - take until operator or end
+                    int innerStart = i;
+                    while (i < expression.Length && expression[i] != '+' && expression[i] != '-' && expression[i] != '*' && expression[i] != '/' && expression[i] != '=' && expression[i] != '^')
+                        i++;
+                    string inner = expression.Substring(innerStart, i - innerStart);
+                    sb.Append($"exp({inner})");
+                }
+                else
+                {
+                    sb.Append("exp(1)");
+                }
+            }
+            else
+            {
+                sb.Append(expression[i]);
+                i++;
+            }
+        }
+        return sb.ToString();
     }
 }

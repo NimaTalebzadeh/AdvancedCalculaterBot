@@ -142,8 +142,8 @@ public static class MathOperationHandler
         {
             // Second argument could be variable or upper bound
             string secondArg = args[1];
-            if (double.TryParse(secondArg, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out _))
-                return MathOperations.Integral(expression, "x", 0, double.Parse(secondArg, System.Globalization.CultureInfo.InvariantCulture));
+            if (TryParseMathConstant(secondArg, out double val))
+                return MathOperations.Integral(expression, "x", 0, val);
             else
                 return MathOperations.Integral(expression, secondArg);
         }
@@ -154,8 +154,8 @@ public static class MathOperationHandler
             string secondArg = args[1];
             string thirdArg = args[2];
 
-            bool secondIsNum = double.TryParse(secondArg, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double lower);
-            bool thirdIsNum = double.TryParse(thirdArg, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double upper);
+            bool secondIsNum = TryParseMathConstant(secondArg, out double lower);
+            bool thirdIsNum = TryParseMathConstant(thirdArg, out double upper);
 
             if (secondIsNum && thirdIsNum)
             {
@@ -176,8 +176,8 @@ public static class MathOperationHandler
         {
             // int(expr, var, lower, upper) - definite integral with specific variable
             string variable = args[1];
-            if (double.TryParse(args[2], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double lo) &&
-                double.TryParse(args[3], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double hi))
+            if (TryParseMathConstant(args[2], out double lo) &&
+                TryParseMathConstant(args[3], out double hi))
             {
                 return MathOperations.Integral(expression, variable, lo, hi);
             }
@@ -268,8 +268,47 @@ public static class MathOperationHandler
     {
         if (args.Length != 1)
             return MathResult.ErrorResult("factor() requires exactly one argument.");
-
         string expression = args[0];
         return MathOperations.Factor(expression);
+    }
+
+    /// <summary>
+    /// Parses a string as a double, recognizing math constants like pi, e, π.
+    /// </summary>
+    private static bool TryParseMathConstant(string value, out double result)
+    {
+        string trimmed = value.Trim().ToLowerInvariant();
+        if (trimmed == "pi" || trimmed == "π")
+        {
+            result = Math.PI;
+            return true;
+        }
+        if (trimmed == "e")
+        {
+            result = Math.E;
+            return true;
+        }
+        if (double.TryParse(value, System.Globalization.NumberStyles.Any,
+            System.Globalization.CultureInfo.InvariantCulture, out result))
+            return true;
+
+        // Try evaluating simple expressions like "2*pi", "pi/2", "3*pi"
+        try
+        {
+            string expr = trimmed
+                .Replace("pi", Math.PI.ToString("R", System.Globalization.CultureInfo.InvariantCulture))
+                .Replace("π", Math.PI.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+            // Only allow digits, dots, operators, and whitespace
+            if (expr.All(c => char.IsDigit(c) || c == '.' || c == '+' || c == '-' || c == '*' || c == '/' || c == ' ' || c == 'e' || c == 'E'))
+            {
+                var ncalc = new NCalc.Expression(expr);
+                result = Convert.ToDouble(ncalc.Evaluate(), System.Globalization.CultureInfo.InvariantCulture);
+                return true;
+            }
+        }
+        catch { }
+
+        result = 0;
+        return false;
     }
 }

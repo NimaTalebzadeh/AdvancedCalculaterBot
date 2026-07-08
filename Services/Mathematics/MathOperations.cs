@@ -559,6 +559,9 @@ public static class MathOperations
 
     private static string TrigDerivative(string expression, string variable)
     {
+        // Strip balanced outer parentheses so (exp(x)) → exp(x) for pattern matching
+        expression = StripOuterParentheses(expression);
+
         var productTerms = SplitAdditiveTerms(expression);
         if (productTerms.Count > 1)
         {
@@ -770,6 +773,38 @@ public static class MathOperations
             return JoinTerms(results);
         }
 
+        // Handle division: numerator/denominator
+        // Special case: f'(x)/f(x) → ln|f(x)|
+        var divParts = SplitDivisionParts(expression);
+        if (divParts != null)
+        {
+            string numerator = divParts.Value.Item1;
+            string denominator = divParts.Value.Item2;
+
+            // Check if numerator is the derivative of denominator
+            string denomDeriv = ComputeDerivativeForIntegralCheck(denominator, variable);
+            if (!string.IsNullOrEmpty(denomDeriv) && ExpressionsMatch(numerator, denomDeriv))
+            {
+                return $"ln({denominator})";
+            }
+            // Check with coefficient: k*f'(x)/f(x) → k*ln|f(x)|
+            var coeffMatch = Regex.Match(numerator, @"^(\d+\.?\d*)\*?(.+)$");
+            if (coeffMatch.Success)
+            {
+                string coeffStr = coeffMatch.Groups[1].Value;
+                string rest = coeffMatch.Groups[2].Value;
+                if (double.TryParse(coeffStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double coeff))
+                {
+                    string restDeriv = ComputeDerivativeForIntegralCheck(denominator, variable);
+                    if (!string.IsNullOrEmpty(restDeriv) && ExpressionsMatch(rest, restDeriv))
+                    {
+                        if (Math.Abs(coeff - 1) < ZeroTolerance) return $"ln({denominator})";
+                        return $"{coeffStr}*ln({denominator})";
+                    }
+                }
+            }
+        }
+
         // Handle coefficient * function: e.g., "2sin(x)", "3cos(x)", "2*sin(x)"
         var mulMatch = Regex.Match(expression, @"^(\d+\.?\d*)\*?(sin|cos|tan|exp|ln|log)\(");
         if (mulMatch.Success)
@@ -876,6 +911,99 @@ public static class MathOperations
             && !lower.Contains("exp(") && !lower.Contains("ln(") && !lower.Contains("log(");
     }
 
+    /// <summary>
+    /// Splits an expression by the top-level / operator.
+    /// Returns null if there is no division.
+    /// </summary>
+    private static (string, string)? SplitDivisionParts(string expression)
+    {
+        int depth = 0;
+        for (int i = expression.Length - 1; i >= 0; i--)
+        {
+            if (expression[i] == ')') depth++;
+            else if (expression[i] == '(') depth--;
+            else if (depth == 0 && expression[i] == '/')
+            {
+                string left = expression.Substring(0, i);
+                string right = expression.Substring(i + 1);
+                if (left.Length > 0 && right.Length > 0)
+                    return (left, right);
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Computes a simple derivative for integral checking purposes.
+    /// Uses the same logic as ComputeDerivative but returns empty string on failure.
+    /// </summary>
+    private static string ComputeDerivativeForIntegralCheck(string expression, string variable)
+    {
+        try
+        {
+            string norm = NormalizeExpression(expression);
+
+            // Strip outer parentheses pairs: ((x^2)+1) → (x^2)+1 → x^2+1
+            while (norm.StartsWith("(") && norm.EndsWith(")"))
+            {
+                string inner = norm.Substring(1, norm.Length - 2);
+                // Check balanced parens - only strip if outer parens are matched
+                int depth = 0;
+                bool balanced = true;
+                for (int i = 0; i < inner.Length; i++)
+                {
+                    if (inner[i] == '(') depth++;
+                    else if (inner[i] == ')') depth--;
+                    if (depth < 0) { balanced = false; break; }
+                }
+                if (balanced && depth == 0) norm = inner;
+                else break;
+            }
+
+            if (norm == variable) return "1";
+            if (!norm.Contains(variable)) return "0";
+
+            // Try polynomial derivative
+            var terms = ParsePolynomialTerms(norm);
+            if (terms.Count > 0 && terms.Any(t => t.Power > 0))
+            {
+                var resultTerms = new List<string>();
+                foreach (var term in terms)
+                {
+                    if (term.Power == 0) continue;
+                    double newCoefficient = term.Coefficient * term.Power;
+                    int newPower = term.Power - 1;
+                    resultTerms.Add(FormatTerm(newCoefficient, newPower));
+                }
+                if (resultTerms.Count > 0) return JoinTerms(resultTerms);
+            }
+        }
+        catch { }
+        return "";
+    }
+
+    /// <summary>
+    /// Checks if two expressions are algebraically equivalent (simple string comparison after normalization).
+    /// </summary>
+    private static bool ExpressionsMatch(string a, string b)
+    {
+        string na = NormalizeExpression(a);
+        string nb = NormalizeExpression(b);
+        if (na == nb) return true;
+
+        // Try swapping order of addition terms
+        var termsA = SplitAdditiveTerms(na).OrderBy(t => t).ToList();
+        var termsB = SplitAdditiveTerms(nb).OrderBy(t => t).ToList();
+        if (termsA.Count == termsB.Count && termsA.SequenceEqual(termsB)) return true;
+
+        // Try with explicit multiplication signs added
+        string na2 = na.Replace("*", "");
+        string nb2 = nb.Replace("*", "");
+        if (na2 == nb2) return true;
+
+        return false;
+    }
+
     private static string IntegrationByParts(string poly, string func, string variable)
     {
         // ∫ poly * func dx using integration by parts
@@ -974,42 +1102,241 @@ public static class MathOperations
 
     private static double ComputeDefiniteIntegral(string expression, string variable, double lower, double upper)
     {
-        var terms = ParsePolynomialTerms(expression);
+        string clean = NormalizeExpression(expression);
+
+        // Check for known function integrals (degrees mode)
+        string cleanTrimmed = StripOuterParentheses(clean);
+
+        if (cleanTrimmed == "sin(" + variable + ")" || cleanTrimmed == "sin" + variable)
+        {
+            double result = -Math.Cos(upper * Math.PI / 180.0) - (-Math.Cos(lower * Math.PI / 180.0));
+            return result;
+        }
+        if (cleanTrimmed == "cos(" + variable + ")" || cleanTrimmed == "cos" + variable)
+        {
+            double result = Math.Sin(upper * Math.PI / 180.0) - Math.Sin(lower * Math.PI / 180.0);
+            return result;
+        }
+        if (cleanTrimmed == "exp(" + variable + ")" || cleanTrimmed == "exp" + variable)
+        {
+            return Math.Exp(upper) - Math.Exp(lower);
+        }
+
+        // Handle additive terms
+        var addTerms = SplitAdditiveTerms(clean);
+        if (addTerms.Count > 1)
+        {
+            return addTerms.Sum(t => ComputeDefiniteIntegral(t, variable, lower, upper));
+        }
+
+        // Try polynomial
+        var terms = ParsePolynomialTerms(clean);
         if (terms.Count == 0)
             return 0;
 
-        double result = 0;
+        double result2 = 0;
         foreach (var term in terms)
         {
             double lowerTerm = term.Coefficient * Math.Pow(lower, term.Power + 1) / (term.Power + 1);
             double upperTerm = term.Coefficient * Math.Pow(upper, term.Power + 1) / (term.Power + 1);
-            result += upperTerm - lowerTerm;
+            result2 += upperTerm - lowerTerm;
         }
 
-        return result;
+        return result2;
     }
 
     private static double ComputeLimit(string expression, string variable, double point)
     {
         expression = NormalizeExpression(expression);
-        var terms = ParsePolynomialTerms(expression);
-        if (terms.Count == 0)
-            return 0;
 
-        double result = 0;
-        foreach (var term in terms)
+        // Check for division: numerator/denominator
+        var divParts = SplitDivisionParts(expression);
+        if (divParts != null)
         {
-            if (term.Power == 0)
+            string num = divParts.Value.Item1;
+            string den = divParts.Value.Item2;
+
+            // Evaluate numerator and denominator at the point using numerical evaluation
+            double numVal = EvaluateExpressionNumerically(num, variable, point);
+            double denVal = EvaluateExpressionNumerically(den, variable, point);
+
+            // If not indeterminate, just compute
+            if (Math.Abs(denVal) > 1e-15)
+                return numVal / denVal;
+
+            // 0/0 or ∞/∞ - try special patterns first
+            string norm = expression.ToLower();
+
+            // Pattern: sin(a*x)/x as x→0 → a (in degrees mode: a*pi/180)
+            var sinAxOverX = System.Text.RegularExpressions.Regex.Match(norm, @"sin\((\d*\.?\d*)\*?x\)/x");
+            if (sinAxOverX.Success && Math.Abs(point) < 1e-10)
             {
-                result += term.Coefficient;
+                string aStr = sinAxOverX.Groups[1].Value;
+                double a = string.IsNullOrEmpty(aStr) ? 1 : double.Parse(aStr, System.Globalization.CultureInfo.InvariantCulture);
+                // Bot uses degrees: sin(a*x°) / x, using L'Hôpital or small-step
+                // Numerical approach for accuracy
+                return NumericalLimit(num, den, variable, point);
             }
-            else if (term.Power > 0)
+
+            // Pattern: (1-cos(a*x))/x^2 as x→0 → a^2/2
+            var oneMinusCos = System.Text.RegularExpressions.Regex.Match(norm, @"\(1-cos\(");
+            if (oneMinusCos.Success && den.Contains("^2") && Math.Abs(point) < 1e-10)
             {
-                result += term.Coefficient * Math.Pow(point, term.Power);
+                return NumericalLimit(num, den, variable, point);
             }
+
+            // General L'Hôpital's rule or numerical approach
+            return NumericalLimit(num, den, variable, point);
         }
 
-        return result;
+        // No division - evaluate numerically
+        return EvaluateExpressionNumerically(expression, variable, point);
+    }
+
+    /// <summary>
+    /// Numerically evaluates a limit by approaching from both sides.
+    /// </summary>
+    private static double NumericalLimit(string numerator, string denominator, string variable, double point)
+    {
+        // Try approaching from both sides with decreasing step sizes
+        double bestResult = double.NaN;
+        for (int exp = 2; exp <= 10; exp++)
+        {
+            double h = Math.Pow(10, -exp);
+            double numP = EvaluateExpressionNumerically(numerator, variable, point + h);
+            double denP = EvaluateExpressionNumerically(denominator, variable, point + h);
+            double numM = EvaluateExpressionNumerically(numerator, variable, point - h);
+            double denM = EvaluateExpressionNumerically(denominator, variable, point - h);
+
+            if (Math.Abs(denP) > 1e-30 && Math.Abs(denM) > 1e-30)
+            {
+                double fromRight = numP / denP;
+                double fromLeft = numM / denM;
+                if (Math.Abs(fromRight - fromLeft) < 0.01)
+                {
+                    bestResult = (fromRight + fromLeft) / 2.0;
+                    break;
+                }
+            }
+        }
+        return double.IsNaN(bestResult) ? 0 : bestResult;
+    }
+
+    /// <summary>
+    /// Numerically evaluates an expression at a given point using simple token replacement.
+    /// </summary>
+    private static double EvaluateExpressionNumerically(string expression, string variable, double value)
+    {
+        string expr = expression;
+        string valStr = value.ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
+        expr = expr.Replace(variable, $"({valStr})");
+
+        // Handle sin/cos/tan/exp/ln by evaluating innermost parens first
+        // Use a loop to evaluate from inside out
+        for (int iter = 0; iter < 20; iter++)
+        {
+            // Find innermost function call (no nested parens inside)
+            string before = expr;
+
+            // Handle exp(...)
+            expr = System.Text.RegularExpressions.Regex.Replace(expr, @"exp\(([^()]+)\)", match =>
+            {
+                double innerVal = EvalSimpleNumeric(match.Groups[1].Value);
+                return Math.Exp(innerVal).ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
+            });
+
+            // Handle sin(...)
+            expr = System.Text.RegularExpressions.Regex.Replace(expr, @"sin\(([^()]+)\)", match =>
+            {
+                double innerVal = EvalSimpleNumeric(match.Groups[1].Value);
+                return Math.Sin(innerVal * Math.PI / 180.0).ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
+            });
+
+            // Handle cos(...)
+            expr = System.Text.RegularExpressions.Regex.Replace(expr, @"cos\(([^()]+)\)", match =>
+            {
+                double innerVal = EvalSimpleNumeric(match.Groups[1].Value);
+                return Math.Cos(innerVal * Math.PI / 180.0).ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
+            });
+
+            // Handle ln(...)
+            expr = System.Text.RegularExpressions.Regex.Replace(expr, @"ln\(([^()]+)\)", match =>
+            {
+                double innerVal = EvalSimpleNumeric(match.Groups[1].Value);
+                return Math.Log(innerVal).ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
+            });
+
+            // Evaluate bare parenthesized expressions like (3.14)
+            expr = System.Text.RegularExpressions.Regex.Replace(expr, @"\(([^()]+)\)", match =>
+            {
+                string inner = match.Groups[1].Value;
+                bool isNumeric = inner.All(c => char.IsDigit(c) || c == '.' || c == '-' || c == '+' || c == 'e' || c == 'E');
+                if (!isNumeric)
+                    return match.Value; // leave non-numeric parens alone
+
+                bool isNegative = inner.TrimStart().StartsWith("-");
+                int idx = match.Index;
+                bool precededByToken = idx > 0 && (char.IsDigit(expr[idx - 1]) || char.IsLetter(expr[idx - 1]));
+
+                if (precededByToken)
+                {
+                    // 2(-3) → 2*-3, sin(-3) → sin*-3 — strip parens, sin/cos regex will handle
+                    return $"*{inner}";
+                }
+                else
+                {
+                    // Standalone (-3) → keep parens to preserve sign: (-3)^2
+                    return isNegative ? $"({inner})" : inner;
+                }
+            });
+
+            if (expr == before) break;
+        }
+
+        return EvalSimpleNumeric(expr);
+    }
+
+    private static double EvalSimpleNumeric(string expr)
+    {
+        try
+        {
+            // NCalc uses ** for power, not ^
+            string ncalcExpr = expr.Replace("^", "**");
+            var ncalc = new NCalc.Expression(ncalcExpr);
+            ncalc.Parameters["pi"] = Math.PI;
+            ncalc.Parameters["e"] = Math.E;
+            return Convert.ToDouble(ncalc.Evaluate(), System.Globalization.CultureInfo.InvariantCulture);
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Strips balanced outer parentheses from an expression.
+    /// (exp(x)) → exp(x), (x^2) → x^2, ((x)) → x
+    /// Does NOT strip if inner parens are unbalanced.
+    /// </summary>
+    private static string StripOuterParentheses(string expression)
+    {
+        while (expression.StartsWith("(") && expression.EndsWith(")"))
+        {
+            string inner = expression.Substring(1, expression.Length - 2);
+            int depth = 0;
+            bool balanced = true;
+            for (int i = 0; i < inner.Length; i++)
+            {
+                if (inner[i] == '(') depth++;
+                else if (inner[i] == ')') depth--;
+                if (depth < 0) { balanced = false; break; }
+            }
+            if (balanced && depth == 0)
+                expression = inner;
+            else
+                break;
+        }
+        return expression;
     }
 
     private static string SimplifyExpression(string expression)
@@ -1334,7 +1661,120 @@ public static class MathOperations
 
     private static string NormalizeExpression(string expression)
     {
-        return expression.Replace(" ", "").Replace("\t", "");
+        string result = expression.Replace(" ", "").Replace("\t", "");
+
+        // Convert e^(expr) to exp(expr) for proper handling
+        // Match e^(...) patterns - handles nested parens
+        result = ConvertENotation(result);
+
+        // Add implicit multiplication: )x → )*x, )e → )*e, )2 → )*2, etc.
+        result = AddImplicitMultiplication(result);
+
+        return result;
+    }
+
+    private static string ConvertENotation(string expression)
+    {
+        // Convert e^(expr) to exp(expr) - handles nested parens
+        var sb = new System.Text.StringBuilder();
+        int i = 0;
+        while (i < expression.Length)
+        {
+            if (i + 1 < expression.Length && expression[i] == 'e' && expression[i + 1] == '^')
+            {
+                // Found e^ - convert to exp(...)
+                int start = i;
+                i += 2; // skip e^
+                if (i < expression.Length && expression[i] == '(')
+                {
+                    // e^(...) - find matching close paren
+                    int depth = 1;
+                    i++; // skip opening (
+                    int innerStart = i;
+                    while (i < expression.Length && depth > 0)
+                    {
+                        if (expression[i] == '(') depth++;
+                        else if (expression[i] == ')') depth--;
+                        if (depth > 0) i++;
+                    }
+                    string inner = expression.Substring(innerStart, i - innerStart);
+                    sb.Append($"exp({inner})");
+                    i++; // skip closing )
+                }
+                else if (i < expression.Length)
+                {
+                    // e^x (no parens) - take single variable/number
+                    int innerStart = i;
+                    while (i < expression.Length && char.IsLetterOrDigit(expression[i]))
+                        i++;
+                    string inner = expression.Substring(innerStart, i - innerStart);
+                    sb.Append($"exp({inner})");
+                }
+                else
+                {
+                    sb.Append("exp(1)");
+                }
+            }
+            else
+            {
+                sb.Append(expression[i]);
+                i++;
+            }
+        }
+        return sb.ToString();
+    }
+
+    private static string AddImplicitMultiplication(string expression)
+    {
+        // Insert * between: )letter, )digit, )/, digit letter, letter( (but not function names)
+        var result = new System.Text.StringBuilder();
+        for (int i = 0; i < expression.Length; i++)
+        {
+            result.Append(expression[i]);
+            if (i + 1 < expression.Length)
+            {
+                char cur = expression[i];
+                char next = expression[i + 1];
+                bool curIsCloseParen = cur == ')';
+                bool nextIsLetter = char.IsLetter(next);
+                bool nextIsOpenParen = next == '(';
+                bool nextIsDigit = char.IsDigit(next);
+                bool curIsDigit = char.IsDigit(cur);
+
+                // ) followed by letter or digit or (
+                if (curIsCloseParen && (nextIsLetter || nextIsDigit || nextIsOpenParen))
+                    result.Append('*');
+                // digit followed by letter or ( — only add * for function names and (, NOT for variable x
+                else if (curIsDigit && (nextIsLetter || nextIsOpenParen))
+                {
+                    if (nextIsOpenParen)
+                        result.Append('*');
+                    else if (nextIsLetter && next != 'x' && next != 'X')
+                        result.Append('*');
+                }
+                // letter followed by ( — but NOT if it's a function name
+                // e.g., "sin(" should stay as is, but "x(" should become "x*("
+                else if (char.IsLetter(cur) && nextIsOpenParen && cur != '^')
+                {
+                    // Check if this is a function name: look back to see if this is the end of a function
+                    // If the previous char(s) form a function name like sin, cos, etc., don't add *
+                    string[] funcNames = { "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "exp", "ln", "log", "sqrt", "abs", "floor", "ceil", "round" };
+                    bool isFuncName = false;
+                    foreach (var fn in funcNames)
+                    {
+                        int fnStart = i - fn.Length + 1;
+                        if (fnStart >= 0 && expression.Substring(fnStart, fn.Length).Equals(fn, StringComparison.OrdinalIgnoreCase))
+                        {
+                            isFuncName = true;
+                            break;
+                        }
+                    }
+                    if (!isFuncName)
+                        result.Append('*');
+                }
+            }
+        }
+        return result.ToString();
     }
 
     private static System.Collections.Generic.List<(double Coefficient, int Power)> ParsePolynomialTerms(string expression)
