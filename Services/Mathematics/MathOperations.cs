@@ -664,6 +664,36 @@ public static class MathOperations
             return $"({dInner})/(2*sqrt({inner}))";
         }
 
+        // Handle generalized power rule: d/dx[f(x)^n] = n * f(x)^(n-1) * f'(x)
+        // Find last ^ at depth 0
+        int pDepth = 0;
+        int lastCaret = -1;
+        for (int i = expression.Length - 1; i >= 0; i--)
+        {
+            if (expression[i] == ')') pDepth++;
+            else if (expression[i] == '(') pDepth--;
+            else if (pDepth == 0 && expression[i] == '^')
+            {
+                lastCaret = i;
+                break;
+            }
+        }
+        if (lastCaret > 0 && lastCaret < expression.Length - 1)
+        {
+            string baseExpr = expression.Substring(0, lastCaret);
+            string powerStr = expression.Substring(lastCaret + 1);
+            if (int.TryParse(powerStr, out int power) && power >= 1)
+            {
+                string baseDeriv = TrigDerivative(baseExpr, variable);
+                if (baseDeriv == "0") return "0";
+                string baseDisplay = WrapIfNeeded(baseExpr);
+                if (power == 1) return baseDeriv;
+                string newBase = power - 1 == 1 ? baseDisplay : $"{baseDisplay}^{power - 1}";
+                if (baseDeriv == "1") return $"{power}*{newBase}";
+                return $"{power}*{newBase}*({baseDeriv})";
+            }
+        }
+
         // Handle quotient rule: (u/v)' = (u'v - uv') / v^2
         var divParts = SplitDivisionParts(expression);
         if (divParts != null)
@@ -759,12 +789,13 @@ public static class MathOperations
         var result = list[0];
         for (int i = 1; i < list.Count; i++)
         {
-            if (list[i].StartsWith("-"))
-                result += $" - {list[i].Substring(1)}";
+            string term = list[i].TrimStart('+'); // Strip leading + if any
+            if (term.StartsWith("-"))
+                result += $" - {term.Substring(1)}";
             else
-                result += $" + {list[i]}";
+                result += $" + {term}";
         }
-        return result;
+        return result.Replace("+ -", "-").Replace("- +", "-"); // Clean up: x + -y → x - y
     }
 
     private static string WrapIfNeeded(string expr)
@@ -956,7 +987,20 @@ public static class MathOperations
     /// </summary>
     private static (string, string)? SplitDivisionParts(string expression)
     {
+        // Count top-level / operators
         int depth = 0;
+        int slashCount = 0;
+        for (int i = 0; i < expression.Length; i++)
+        {
+            if (expression[i] == '(') depth++;
+            else if (expression[i] == ')') depth--;
+            else if (depth == 0 && expression[i] == '/')
+                slashCount++;
+        }
+        // Only split when there's exactly one top-level /
+        if (slashCount != 1) return null;
+
+        depth = 0;
         for (int i = expression.Length - 1; i >= 0; i--)
         {
             if (expression[i] == ')') depth++;
@@ -1533,33 +1577,464 @@ public static class MathOperations
             expr = expr.Substring(0, expr.Length - 3).TrimEnd();
         }
 
-        // Step 1: Strip redundant outer parens
-        expr = StripRedundantOuterParens(expr);
-
-        // Step 2: Clean +(expr) and -(expr) (only at term boundaries, not inside nested parens)
-        // Only strip when closing ) is NOT followed by * or / (to preserve multiplication semantics)
-        expr = Regex.Replace(expr, @"(?<!\()\+\s*\(([^()]+)\)(?![a-zA-Z0-9\(\*\/])", "+$1");
-        expr = Regex.Replace(expr, @"(?<!\()-\s*\(([^()]+)\)(?![a-zA-Z0-9\(\*\/])", "-$1");
-        // Clean nested: (+(x^3)) → x^3
-        expr = Regex.Replace(expr, @"\(\+\(([^()]+)\)\)", "$1");
-        // Clean +(+(expr)) → +expr
-        expr = Regex.Replace(expr, @"\+\(\+([^()]+)\)\)", "+$1");
-
-        // Step 3: Clean (exp(x)) → exp(x), (sin(x)) → sin(x), etc.
-        expr = Regex.Replace(expr, @"\((exp\([^()]+\))\)", "$1");
-        expr = Regex.Replace(expr, @"\((sin\([^()]+\))\)", "$1");
-        expr = Regex.Replace(expr, @"\((cos\([^()]+\))\)", "$1");
-        expr = Regex.Replace(expr, @"\((ln\([^()]+\))\)", "$1");
-
-        // Step 4: Move trailing constant to front: exp(3x)*(3) → 3*exp(3*x)
-        expr = Regex.Replace(expr, @"(exp\([^()]+\))\*\((\d+\.?\d*)\)", "$2*$1");
-        expr = Regex.Replace(expr, @"(sin\([^()]+\))\*\((\d+\.?\d*)\)", "$2*$1");
-        expr = Regex.Replace(expr, @"(cos\([^()]+\))\*\((\d+\.?\d*)\)", "$2*$1");
-
-        // Step 5: Combine additive terms with same structure
-        expr = CombineLikeTerms(expr);
+        expr = AlgebraicSimplify(expr);
 
         return expr + cSuffix;
+    }
+
+    /// <summary>
+    /// Full algebraic simplification: expand products, strip trivial ops, combine like terms.
+    /// Handles division by simplifying numerator and denominator separately.
+    /// </summary>
+    private static string AlgebraicSimplify(string expr)
+    {
+        // Handle division: simplify num/den separately
+        var divParts = SplitDivisionParts(expr);
+        if (divParts != null)
+        {
+            string num = AlgebraicSimplify(divParts.Value.Item1);
+            string den = AlgebraicSimplify(divParts.Value.Item2);
+            // Clean nested parens in denominator like ((x-3))^2 → (x-3)^2
+            den = Regex.Replace(den, @"\(\(([^()]+)\)\)(\^[\d]+)", "($1)$2");
+            // If denominator is 1, just return numerator
+            if (den == "1") return num;
+            return $"{num} / {den}";
+        }
+
+        // For non-division: full algebraic simplification pipeline
+        expr = StripRedundantOuterParens(expr);
+        expr = StripTrivialOps(expr);
+        expr = ExpandProductsInExpression(expr);
+        expr = DistributeNegation(expr);
+        expr = StripTrivialOps(expr);
+        expr = StripRedundantOuterParens(expr);
+        expr = CombineAdditiveTermsFull(expr);
+        expr = StripTrivialOps(expr);
+        expr = CleanFormatting(expr);
+        return expr;
+    }
+
+    /// <summary>
+    /// Strips trivial arithmetic: x+0, x-0, 0+x, 0*x, x*1, 1*x, x/1
+    /// </summary>
+    private static string StripTrivialOps(string expr)
+    {
+        string prev;
+        int safety = 20;
+        do
+        {
+            prev = expr;
+            // x + 0 → x, 0 + x → x
+            expr = Regex.Replace(expr, @"(\w+)\s*\+\s*0(?!\w)", "$1");
+            expr = Regex.Replace(expr, @"0\s*\+\s*(\w+)", "$1");
+            // x - 0 → x
+            expr = Regex.Replace(expr, @"(\w+)\s*-\s*0(?!\w)", "$1");
+            // x * 1 → x, 1 * x → x
+            expr = Regex.Replace(expr, @"(\w+)\s*\*\s*1(?!\w)", "$1");
+            expr = Regex.Replace(expr, @"1\s*\*\s*(\w+)", "$1");
+            // x * 0 → 0, 0 * x → 0
+            expr = Regex.Replace(expr, @"\w+\s*\*\s*0(?!\w)", "0");
+            expr = Regex.Replace(expr, @"0\s*\*\s*\w+", "0");
+            // x / 1 → x
+            expr = Regex.Replace(expr, @"(\w+)\s*/\s*1(?!\w)", "$1");
+            // Also handle with parens: (expr)+0, (expr)-0, (expr)*1, 1*(expr)
+            expr = Regex.Replace(expr, @"\(([^()]+)\)\s*\+\s*0", "($1)");
+            expr = Regex.Replace(expr, @"\(([^()]+)\)\s*-\s*0", "($1)");
+            expr = Regex.Replace(expr, @"\(([^()]+)\)\s*\*\s*1", "($1)");
+            expr = Regex.Replace(expr, @"\(([^()]+)\)\s*\*\s*\(1\)", "($1)");
+            expr = Regex.Replace(expr, @"\(1\)\s*\*\s*\(([^()]+)\)", "($1)");
+            expr = Regex.Replace(expr, @"1\s*\*\s*\(([^()]+)\)", "($1)");
+            expr = Regex.Replace(expr, @"\(([^()]+)\)\s*\*\s*0", "0");
+            expr = Regex.Replace(expr, @"0\s*\*\s*\(([^()]+)\)", "0");
+            // Clean double parens: ((expr)) → (expr)
+            expr = Regex.Replace(expr, @"\(\(([^()]+)\)\)", "($1)");
+        }
+        while (expr != prev && --safety > 0);
+        return expr;
+    }
+
+    /// <summary>
+    /// Expands products of additive expressions: (a+b)*(c+d) → ac+ad+bc+bd
+    /// Also handles (expr)*number and number*(expr).
+    /// </summary>
+    private static string ExpandProductsInExpression(string expr)
+    {
+        int safety = 20;
+        while (safety-- > 0)
+        {
+            var match = FindTopLevelProduct(expr);
+            if (match == null) break;
+
+            string left = match.Value.left;
+            string right = match.Value.right;
+
+            // Only expand if at least one side is additive
+            bool leftAdditive = HasTopLevelAdditive(left);
+            bool rightAdditive = HasTopLevelAdditive(right);
+            if (!leftAdditive && !rightAdditive) break;
+
+            var leftTerms = SplitAdditiveTerms(left);
+            var rightTerms = SplitAdditiveTerms(right);
+
+            var expanded = new List<string>();
+            foreach (var lt in leftTerms)
+            {
+                foreach (var rt in rightTerms)
+                {
+                    string product = MultiplyTerms(lt, rt);
+                    if (product != "0")
+                        expanded.Add(product);
+                }
+            }
+
+            string replacement = expanded.Count > 0 ? JoinTerms(expanded) : "0";
+            expr = expr.Substring(0, match.Value.start) + replacement + expr.Substring(match.Value.end);
+        }
+        return expr;
+    }
+
+    /// <summary>
+    /// Distributes negation through parenthesized additive expressions.
+    /// e.g., "-(x^2+1)" → "-x^2 - 1", "-(x-3)" → "-x + 3"
+    /// </summary>
+    private static string DistributeNegation(string expr)
+    {
+        int safety = 20;
+        while (safety-- > 0)
+        {
+            // Pattern: sign -(expr) where expr contains + or - at depth 0
+            var match = Regex.Match(expr, @"(?<=[+\s])- \(([^()]+)\)");
+            if (!match.Success) break;
+            string inner = match.Groups[1].Value;
+            var terms = SplitAdditiveTerms(inner);
+            var distributed = new List<string>();
+            foreach (var t in terms)
+            {
+                string trimmed = t.TrimStart('+');
+                if (trimmed.StartsWith("-"))
+                    distributed.Add(trimmed.Substring(1));
+                else
+                    distributed.Add("-" + trimmed);
+            }
+            string replacement = string.Join(" ", distributed);
+            expr = expr.Substring(0, match.Index) + replacement + expr.Substring(match.Index + match.Length);
+        }
+        return expr;
+    }
+
+    private static bool HasTopLevelAdditive(string expr)
+    {
+        int depth = 0;
+        for (int i = 0; i < expr.Length; i++)
+        {
+            if (expr[i] == '(') depth++;
+            else if (expr[i] == ')') depth--;
+            else if (depth == 0 && (expr[i] == '+' || (expr[i] == '-' && i > 0)))
+                return true;
+        }
+        return false;
+    }
+
+
+    /// <summary>
+    /// Finds the first top-level product of two parenthesized additive expressions.
+    /// Returns the left/right strings and position, or null.
+    /// </summary>
+    private static (string left, string right, int start, int end, int[] stars)? FindTopLevelProduct(string expr)
+    {
+        int depth = 0;
+        int leftStart = -1;
+        var parenRanges = new List<(int start, int end)>();
+        var starPositions = new List<int>();
+
+        for (int i = 0; i < expr.Length; i++)
+        {
+            if (expr[i] == '(')
+            {
+                if (depth == 0) leftStart = i;
+                depth++;
+            }
+            else if (expr[i] == ')')
+            {
+                depth--;
+                if (depth == 0 && leftStart >= 0)
+                {
+                    parenRanges.Add((leftStart, i));
+                    leftStart = -1;
+                }
+            }
+            else if (expr[i] == '*' && depth == 0)
+            {
+                starPositions.Add(i);
+            }
+        }
+
+        // Find adjacent parenthesized expressions separated by *
+        for (int p = 0; p < parenRanges.Count - 1; p++)
+        {
+            var cur = parenRanges[p];
+            var nxt = parenRanges[p + 1];
+            // Check if there's a * between them (possibly with spaces)
+            int betweenEnd = nxt.start;
+            int betweenStart = cur.end + 1;
+            string between = expr.Substring(betweenStart, betweenEnd - betweenStart).Trim();
+            if (between == "*")
+            {
+                string left = expr.Substring(cur.start + 1, cur.end - cur.start - 1);
+                string right = expr.Substring(nxt.start + 1, nxt.end - nxt.start - 1);
+                return (left, right, cur.start, nxt.end + 1, starPositions.ToArray());
+            }
+        }
+
+        // Also try: (A+B)*x or x*(A+B) where one side is parenthesized
+        for (int i = 0; i < starPositions.Count; i++)
+        {
+            int star = starPositions[i];
+            // Look for (expr)*token or token*(expr)
+            // Check left of star for closing paren
+            if (star > 0 && expr[star - 1] == ')')
+            {
+                int closeParen = star - 1;
+                int openParen = FindMatchingOpenParen(expr, closeParen);
+                if (openParen >= 0)
+                {
+                    string left = expr.Substring(openParen + 1, closeParen - openParen - 1);
+                    // Right side: take token after *
+                    int rightStart = star + 1;
+                    while (rightStart < expr.Length && expr[rightStart] == ' ') rightStart++;
+                    int rightEnd = rightStart;
+                    while (rightEnd < expr.Length && expr[rightEnd] != '+' && expr[rightEnd] != '-' &&
+                           expr[rightEnd] != '*' && expr[rightEnd] != '/' && expr[rightEnd] != '(' && expr[rightEnd] != ')')
+                        rightEnd++;
+                    if (rightEnd > rightStart)
+                    {
+                        string right = expr.Substring(rightStart, rightEnd - rightStart);
+                        return (left, right, openParen, rightEnd, starPositions.ToArray());
+                    }
+                }
+            }
+            // Check right of star for opening paren
+            if (star + 1 < expr.Length && expr[star + 1] == '(')
+            {
+                int openParen = star + 1;
+                int closeParen = FindMatchingCloseParen(expr, openParen);
+                if (closeParen > 0)
+                {
+                    string right = expr.Substring(openParen + 1, closeParen - openParen - 1);
+                    // Left side: take token before *
+                    int leftEnd = star;
+                    int lStart = leftEnd - 1;
+                    while (lStart >= 0 && expr[lStart] == ' ') lStart--;
+                    while (lStart >= 0 && expr[lStart] != '+' && expr[lStart] != '-' &&
+                           expr[lStart] != '*' && expr[lStart] != '/' && expr[lStart] != '(' && expr[lStart] != ')')
+                        lStart--;
+                    lStart++;
+                    if (leftEnd > lStart)
+                    {
+                        string left = expr.Substring(lStart, leftEnd - lStart);
+                        return (left, right, lStart, closeParen + 1, starPositions.ToArray());
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static int FindMatchingOpenParen(string expr, int closePos)
+    {
+        int depth = 0;
+        for (int i = closePos; i >= 0; i--)
+        {
+            if (expr[i] == ')') depth++;
+            if (expr[i] == '(')
+            {
+                depth--;
+                if (depth == 0) return i;
+            }
+        }
+        return -1;
+    }
+
+    private static int FindMatchingCloseParen(string expr, int openPos)
+    {
+        int depth = 0;
+        for (int i = openPos; i < expr.Length; i++)
+        {
+            if (expr[i] == '(') depth++;
+            if (expr[i] == ')')
+            {
+                depth--;
+                if (depth == 0) return i;
+            }
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// Multiplies two additive terms (e.g., "2x" * "(x-3)") → expanded product.
+    /// </summary>
+    private static string MultiplyTerms(string a, string b)
+    {
+        a = a.Trim();
+        b = b.Trim();
+        if (a == "0" || b == "0") return "0";
+        if (a == "1") return b;
+        if (b == "1") return a;
+        if (a == "-1") return $"-{WrapIfNeeded(b)}";
+        if (b == "-1") return $"-{WrapIfNeeded(a)}";
+
+        // Check if either side is parenthesized with additive terms
+        string cleanA = StripRedundantOuterParens(a);
+        string cleanB = StripRedundantOuterParens(b);
+
+        var aTerms = SplitAdditiveTerms(cleanA);
+        var bTerms = SplitAdditiveTerms(cleanB);
+
+        if (aTerms.Count > 1 && bTerms.Count > 1)
+        {
+            // Full expansion: (a1+a2)*(b1+b2) = a1*b1 + a1*b2 + a2*b1 + a2*b2
+            var products = new List<string>();
+            foreach (var at in aTerms)
+            {
+                foreach (var bt in bTerms)
+                {
+                    string p = SimpleMultiply(at, bt);
+                    if (p != "0") products.Add(p);
+                }
+            }
+            return products.Count > 0 ? string.Join(" + ", products.Select(t => t.TrimStart('+'))) : "0";
+        }
+
+        return SimpleMultiply(a, b);
+    }
+
+    /// <summary>
+    /// Simple multiplication of two non-additive terms: "2x" * "(x-3)" → "2x*(x-3)" or expanded.
+    /// </summary>
+    private static string SimpleMultiply(string a, string b)
+    {
+        a = a.Trim(); b = b.Trim();
+        if (a == "0" || b == "0") return "0";
+        if (a == "1") return b;
+        if (b == "1") return a;
+        if (a == "-1") return $"-{b}";
+        if (b == "-1") return $"-{a}";
+
+        // Try numeric coefficient extraction
+        double coeffA = 1, coeffB = 1;
+        string structA = a, structB = b;
+
+        ExtractNumCoeff(a, out coeffA, out structA);
+        ExtractNumCoeff(b, out coeffB, out structB);
+
+        double totalCoeff = coeffA * coeffB;
+        if (Math.Abs(totalCoeff) < 1e-10) return "0";
+
+        // If both have structure, multiply them
+        if (!string.IsNullOrEmpty(structA) && !string.IsNullOrEmpty(structB))
+        {
+            // Check if the structures are the same → combine to coeff * struct^2
+            if (structA == structB)
+            {
+                string coeffStr = FormatCoeff(totalCoeff);
+                return $"{coeffStr}{structA}^2";
+            }
+            string c = FormatCoeff(totalCoeff);
+            return $"{c}{structA}*{structB}";
+        }
+
+        // One is purely numeric
+        if (string.IsNullOrEmpty(structA) || string.IsNullOrEmpty(structB))
+        {
+            string remaining = !string.IsNullOrEmpty(structA) ? structA : structB;
+            string c = FormatCoeff(totalCoeff);
+            if (string.IsNullOrEmpty(remaining)) return c;
+            if (string.IsNullOrEmpty(c)) return remaining;
+            // Format: 2*x → 2x (no * between number and variable)
+            if (char.IsLetter(remaining[0])) return $"{c}{remaining}";
+            return $"{c}*{remaining}";
+        }
+        // Fallback for cases where one has coeff, other doesn't
+        return "Error in SimpleMultiply"; // Should not be reached with proper logic
+    }
+
+    private static void ExtractNumCoeff(string term, out double coeff, out string structure)
+    {
+        coeff = 1;
+        structure = term.Trim();
+        if (string.IsNullOrEmpty(structure)) return;
+
+        double sign = 1;
+        if (structure.StartsWith("-"))
+        {
+            sign = -1;
+            structure = structure.Substring(1).Trim();
+        }
+        else if (structure.StartsWith("+"))
+        {
+            structure = structure.Substring(1).Trim();
+        }
+
+        // Strip outer parens
+        structure = StripRedundantOuterParens(structure);
+
+        // Try to extract leading number
+        var match = Regex.Match(structure, @"^(\d+\.?\d*)\*?(.*)$");
+        if (match.Success)
+        {
+            coeff = sign * double.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            structure = match.Groups[2].Value.TrimStart('*').Trim();
+        }
+        else
+        {
+            coeff = sign;
+        }
+    }
+
+    private static string FormatCoeff(double c)
+    {
+        if (Math.Abs(c - 1) < 1e-10) return "";
+        if (Math.Abs(c + 1) < 1e-10) return "-";
+        if (Math.Abs(c - Math.Round(c)) < 1e-10 && Math.Abs(Math.Round(c)) < 1e15)
+            return ((long)Math.Round(c)).ToString();
+        return c.ToString("G10", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// Combines additive terms (handles division by working on the full expression).
+    /// </summary>
+    private static string CombineAdditiveTermsFull(string expr)
+    {
+        // For division expressions, only combine in numerator
+        var divParts = SplitDivisionParts(expr);
+        if (divParts != null)
+        {
+            string num = CombineLikeTerms(divParts.Value.Item1);
+            string den = divParts.Value.Item2;
+            return $"{num}/{den}";
+        }
+        return CombineLikeTerms(expr);
+    }
+
+    /// <summary>
+    /// Cleans common formatting artifacts.
+    /// </summary>
+    private static string CleanFormatting(string expr)
+    {
+        // Clean 2.0 → 2, 3.0 → 3
+        expr = Regex.Replace(expr, @"(\d+)\.0(?!\d)", "$1");
+        // Clean + - → -
+        expr = expr.Replace("+ -", "- ");
+        // Clean leading +
+        if (expr.StartsWith("+ ")) expr = expr.Substring(2);
+        // Clean *1 in various forms
+        expr = Regex.Replace(expr, @"(\w)\*1(?!\w)", "$1");
+        // Add spaces around / for readability
+        expr = Regex.Replace(expr, @"(\w)\s*/\s*(\w)", "$1 / $2");
+        // Clean double spaces
+        expr = Regex.Replace(expr, @"  +", " ");
+        return expr.Trim();
     }
 
     /// <summary>
@@ -1596,8 +2071,7 @@ public static class MathOperations
     /// </summary>
     private static string CombineLikeTerms(string expression)
     {
-        // Skip combining if expression has division (fractions like "x^3 / 3")
-        // — our term parser can't handle those correctly
+        // Skip combining if expression has division
         if (expression.Contains("/"))
             return expression;
 
@@ -1940,13 +2414,6 @@ public static class MathOperations
             return $"{FormatCoeff(commonFactor)}({JoinTerms(termStrings)})";
 
         return expression;
-    }
-
-    private static string FormatCoeff(double c)
-    {
-        if (Math.Abs(c - 1) < ZeroTolerance) return "";
-        if (Math.Abs(c + 1) < ZeroTolerance) return "-";
-        return c.ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static string FormatLinearFactor(double a, double b)
