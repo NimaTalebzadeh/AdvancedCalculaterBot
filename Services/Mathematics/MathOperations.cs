@@ -639,6 +639,14 @@ public static class MathOperations
             return $"({dInner})/({inner})";
         }
 
+        if (expression.StartsWith("log(") && expression.EndsWith(")"))
+        {
+            string inner = expression.Substring(4, expression.Length - 5);
+            string dInner = TrigDerivative(inner, variable);
+            if (dInner == "1") return $"1/({inner}*ln(10))";
+            return $"({dInner})/({inner}*ln(10))";
+        }
+
         return PolynomialDerivative(expression, variable);
     }
 
@@ -743,6 +751,47 @@ public static class MathOperations
     private static string ComputeIndefiniteIntegral(string expression, string variable)
     {
         expression = NormalizeExpression(expression);
+
+        // Handle trig/log functions
+        if (expression.StartsWith("sin(") && expression.EndsWith(")"))
+        {
+            string inner = expression.Substring(4, expression.Length - 5);
+            if (inner == variable) return $"-cos({variable})";
+            return $"-cos({inner}) / ({TrigDerivative(inner, variable)})";
+        }
+        if (expression.StartsWith("cos(") && expression.EndsWith(")"))
+        {
+            string inner = expression.Substring(4, expression.Length - 5);
+            if (inner == variable) return $"sin({variable})";
+            return $"sin({inner}) / ({TrigDerivative(inner, variable)})";
+        }
+        if (expression.StartsWith("tan(") && expression.EndsWith(")"))
+        {
+            string inner = expression.Substring(4, expression.Length - 5);
+            if (inner == variable) return $"-ln(cos({variable}))";
+            return $"-ln(cos({inner})) / ({TrigDerivative(inner, variable)})";
+        }
+        if (expression.StartsWith("exp(") && expression.EndsWith(")"))
+        {
+            string inner = expression.Substring(4, expression.Length - 5);
+            if (inner == variable) return $"exp({variable})";
+            return $"exp({inner}) / ({TrigDerivative(inner, variable)})";
+        }
+        if (expression.StartsWith("ln(") && expression.EndsWith(")"))
+        {
+            string inner = expression.Substring(3, expression.Length - 4);
+            if (inner == variable) return $"{variable}*ln({variable}) - {variable}";
+            // For ln(f(x)), use integration by parts or substitution
+            return $"({variable}*ln({inner}) - ∫{variable}/({inner}) d{variable})";
+        }
+        if (expression.StartsWith("log(") && expression.EndsWith(")"))
+        {
+            string inner = expression.Substring(4, expression.Length - 5);
+            if (inner == variable) return $"{variable}*log({variable}) - {variable}/ln(10)";
+            return $"({variable}*log({inner}) - ∫{variable}/({inner}*ln(10)) d{variable})";
+        }
+
+        // Handle polynomial terms
         var terms = ParsePolynomialTerms(expression);
         if (terms.Count == 0)
             return "0";
