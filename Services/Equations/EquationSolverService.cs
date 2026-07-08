@@ -35,11 +35,11 @@ public static class EquationSolverService
             return "Only equations in the variable 'x' are supported.";
 
         // Check for transcendental equations first
-        if (TranscendentalSolver.IsTranscendental(equation))
+        if (LegacyTranscendentalSolver.IsTranscendental(equation))
         {
             try
             {
-                double[] doubleRoots = TranscendentalSolver.Solve(equation);
+                double[] doubleRoots = LegacyTranscendentalSolver.Solve(equation);
                 Complex[] roots = Array.ConvertAll(doubleRoots, d => new Complex(d, 0));
                 if (roots.Length == 0)
                     return "No solution found (diverged or no root near x₀ = 1)";

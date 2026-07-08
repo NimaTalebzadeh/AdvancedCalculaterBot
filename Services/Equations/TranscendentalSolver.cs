@@ -11,7 +11,7 @@ namespace AdvancedCalculaterBot.Services.Equations
     /// transcendental functions (sin, cos, tan, log, ln, exp, asin, acos, atan).
     /// All trigonometric functions accept degrees and return degrees.
     /// </summary>
-    public static class TranscendentalSolver
+    public static class LegacyTranscendentalSolver
     {
         private const double Tolerance = 1e-9;
         private const int MaxIterations = 100;
