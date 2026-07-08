@@ -576,6 +576,21 @@ public static class MathOperations
             return $"({du})*({v}) + ({u})*({dv})";
         }
 
+        // Handle leading + or - sign: strip it, derive, reapply
+        if (expression.Length > 1 && (expression[0] == '+' || expression[0] == '-'))
+        {
+            char sign = expression[0];
+            string rest = expression.Substring(1);
+            string innerDeriv = TrigDerivative(rest, variable);
+            if (sign == '-')
+            {
+                if (innerDeriv.StartsWith("-"))
+                    return innerDeriv.Substring(1); // -(-result) = result
+                return $"-({innerDeriv})";
+            }
+            return innerDeriv; // + just passes through
+        }
+
         if (expression.StartsWith("sin(") && expression.EndsWith(")"))
         {
             string inner = expression.Substring(4, expression.Length - 5);
