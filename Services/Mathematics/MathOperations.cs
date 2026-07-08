@@ -1175,7 +1175,27 @@ public static class MathOperations
             if (Math.Abs(denVal) > 1e-15)
                 return numVal / denVal;
 
-            // 0/0 or ∞/∞ - use numerical approach
+            // 0/0 or ∞/∞ - try L'Hôpital's rule symbolically first
+            string lhNum = num;
+            string lhDen = den;
+            for (int i = 0; i < 5; i++)
+            {
+                string dNum = ComputeDerivative(lhNum, variable);
+                string dDen = ComputeDerivative(lhDen, variable);
+                if (string.IsNullOrEmpty(dNum) || string.IsNullOrEmpty(dDen))
+                    break;
+
+                double dNumVal = EvaluateExpressionNumerically(dNum, variable, point, useRadians: true);
+                double dDenVal = EvaluateExpressionNumerically(dDen, variable, point, useRadians: true);
+
+                if (Math.Abs(dDenVal) > 1e-15)
+                    return dNumVal / dDenVal;
+
+                lhNum = dNum;
+                lhDen = dDen;
+            }
+
+            // Fall back to numerical approach
             return NumericalLimit(num, den, variable, point);
         }
 
@@ -1249,7 +1269,10 @@ public static class MathOperations
     {
         string expr = expression;
         string valStr = value.ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
-        expr = expr.Replace(variable, $"({valStr})");
+        // Only replace standalone variable, not inside function names like exp, sin, etc.
+        expr = System.Text.RegularExpressions.Regex.Replace(expr,
+            @"(?<![a-zA-Z])" + System.Text.RegularExpressions.Regex.Escape(variable) + @"(?![a-zA-Z])",
+            $"({valStr})");
 
         // Handle sin/cos/tan/exp/ln by evaluating innermost parens first
         // Use a loop to evaluate from inside out
@@ -1279,6 +1302,14 @@ public static class MathOperations
                 double innerVal = EvalSimpleNumeric(match.Groups[1].Value);
                 double angle = useRadians ? innerVal : innerVal * Math.PI / 180.0;
                 return Math.Cos(angle).ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
+            });
+
+            // Handle tan(...)
+            expr = System.Text.RegularExpressions.Regex.Replace(expr, @"tan\(([^()]+)\)", match =>
+            {
+                double innerVal = EvalSimpleNumeric(match.Groups[1].Value);
+                double angle = useRadians ? innerVal : innerVal * Math.PI / 180.0;
+                return Math.Tan(angle).ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
             });
 
             // Handle ln(...)
