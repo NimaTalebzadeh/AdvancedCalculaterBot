@@ -752,7 +752,43 @@ public static class MathOperations
     {
         expression = NormalizeExpression(expression);
 
-        // Handle trig/log functions
+        // Handle leading + or - sign
+        if (expression.Length > 1 && expression[0] == '-')
+        {
+            string inner = ComputeIndefiniteIntegral(expression.Substring(1), variable);
+            if (inner.StartsWith("-")) return inner.Substring(1);
+            return $"-{inner}";
+        }
+        if (expression.Length > 1 && expression[0] == '+')
+            return ComputeIndefiniteIntegral(expression.Substring(1), variable);
+
+        // Handle additive terms: split by + and - at depth 0
+        var addTerms = SplitAdditiveTerms(expression);
+        if (addTerms.Count > 1)
+        {
+            var results = addTerms.Select(t => ComputeIndefiniteIntegral(t, variable)).ToList();
+            return JoinTerms(results);
+        }
+
+        // Handle coefficient * function: e.g., "2sin(x)", "3cos(x)", "2*sin(x)"
+        var mulMatch = Regex.Match(expression, @"^(\d+\.?\d*)\*?(sin|cos|tan|exp|ln|log)\(");
+        if (mulMatch.Success)
+        {
+            string coeffStr = mulMatch.Groups[1].Value;
+            string func = expression.Substring(coeffStr.Length).TrimStart('*');
+            if (double.TryParse(coeffStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double coeff))
+            {
+                string innerInt = ComputeIndefiniteIntegral(func, variable);
+                if (Math.Abs(coeff - 1) < ZeroTolerance) return innerInt;
+                if (Math.Abs(coeff + 1) < ZeroTolerance) return $"-{innerInt}";
+                // Clean up: -coeff*cos(x) → -2*cos(x) instead of 2*-cos(x)
+                if (innerInt.StartsWith("-"))
+                    return $"-{coeffStr}*{innerInt.Substring(1)}";
+                return $"{coeffStr}*{innerInt}";
+            }
+        }
+
+        // Handle bare function calls
         if (expression.StartsWith("sin(") && expression.EndsWith(")"))
         {
             string inner = expression.Substring(4, expression.Length - 5);
@@ -781,7 +817,6 @@ public static class MathOperations
         {
             string inner = expression.Substring(3, expression.Length - 4);
             if (inner == variable) return $"{variable}*ln({variable}) - {variable}";
-            // For ln(f(x)), use integration by parts or substitution
             return $"({variable}*ln({inner}) - ∫{variable}/({inner}) d{variable})";
         }
         if (expression.StartsWith("log(") && expression.EndsWith(")"))
