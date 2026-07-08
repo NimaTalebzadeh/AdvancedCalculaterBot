@@ -826,6 +826,23 @@ public static class MathOperations
             return $"({variable}*log({inner}) - ∫{variable}/({inner}*ln(10)) d{variable})";
         }
 
+        // Handle product: polynomial * trig/exp/ln → integration by parts
+        var productParts = SplitProductParts(expression);
+        if (productParts.Count == 2)
+        {
+            string left = productParts[0];
+            string right = productParts[1];
+
+            // Identify which is polynomial and which is transcendental
+            bool leftIsPoly = IsPolynomial(left, variable);
+            bool rightIsPoly = IsPolynomial(right, variable);
+
+            if (leftIsPoly && !rightIsPoly)
+                return IntegrationByParts(left, right, variable);
+            if (!leftIsPoly && rightIsPoly)
+                return IntegrationByParts(right, left, variable);
+        }
+
         // Handle polynomial terms
         var terms = ParsePolynomialTerms(expression);
         if (terms.Count == 0)
@@ -849,6 +866,110 @@ public static class MathOperations
         }
 
         return JoinTerms(resultTerms);
+    }
+
+    private static bool IsPolynomial(string expression, string variable)
+    {
+        // Returns true if expression is purely polynomial (no sin/cos/tan/exp/ln/log)
+        string lower = expression.ToLower();
+        return !lower.Contains("sin(") && !lower.Contains("cos(") && !lower.Contains("tan(")
+            && !lower.Contains("exp(") && !lower.Contains("ln(") && !lower.Contains("log(");
+    }
+
+    private static string IntegrationByParts(string poly, string func, string variable)
+    {
+        // ∫ poly * func dx using integration by parts
+        // For x^n * f(x): u = x^n, dv = f(x)dx → du = n*x^(n-1), v = ∫f(x)dx
+        // Result: x^n * V - ∫ n*x^(n-1) * V dx, where V = ∫f(x)dx
+
+        string v = ComputeIndefiniteIntegral(func, variable); // ∫f(x)dx
+
+        // Get polynomial power and coefficient
+        var terms = ParsePolynomialTerms(poly);
+        if (terms.Count == 0) return "0";
+
+        // For simplicity, handle single-term polynomials: a*x^n
+        var mainTerm = terms[0];
+        double coeff = mainTerm.Coefficient;
+        int power = mainTerm.Power;
+
+        if (power == 0)
+        {
+            // Constant * func: just pull out constant
+            if (Math.Abs(coeff - 1) < ZeroTolerance) return v;
+            if (Math.Abs(coeff + 1) < ZeroTolerance) return $"-{v}";
+            string cStr = coeff.ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
+            return $"{cStr}*{v}";
+        }
+
+        // u = x^n, du = n*x^(n-1)
+        string uStr = power == 1 ? variable : $"{variable}^{power}";
+        string duCoeff = (coeff * power).ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
+        string duPoly = power == 2 ? $"{duCoeff}*{variable}" : $"{duCoeff}*{variable}^{power - 1}";
+
+        // ∫ u*dv = u*v - ∫ v*du
+        // But v is an antiderivative expression, not a simple function — we can't integrate v*du symbolically in general.
+        // So we apply parts iteratively for specific known patterns.
+
+        // Known patterns:
+        // ∫x*sin(x)dx = -x*cos(x) + sin(x)
+        // ∫x*cos(x)dx = x*sin(x) + cos(x)
+        // ∫x*exp(x)dx = x*exp(x) - exp(x)
+        // ∫x*ln(x)dx = x²/2*ln(x) - x²/4
+
+        if (power == 1)
+        {
+            if (func.StartsWith("sin(") && func.EndsWith(")"))
+            {
+                string inner = func.Substring(4, func.Length - 5);
+                if (inner == variable)
+                    return $"-{variable}*cos({variable}) + sin({variable})";
+            }
+            if (func.StartsWith("cos(") && func.EndsWith(")"))
+            {
+                string inner = func.Substring(4, func.Length - 5);
+                if (inner == variable)
+                    return $"{variable}*sin({variable}) + cos({variable})";
+            }
+            if (func.StartsWith("exp(") && func.EndsWith(")"))
+            {
+                string inner = func.Substring(4, func.Length - 5);
+                if (inner == variable)
+                    return $"{variable}*exp({variable}) - exp({variable})";
+            }
+            if (func.StartsWith("ln(") && func.EndsWith(")"))
+            {
+                string inner = func.Substring(3, func.Length - 4);
+                if (inner == variable)
+                    return $"{variable}^2/2*ln({variable}) - {variable}^2/4";
+            }
+        }
+
+        if (power == 2)
+        {
+            if (func.StartsWith("sin(") && func.EndsWith(")"))
+            {
+                string inner = func.Substring(4, func.Length - 5);
+                if (inner == variable)
+                    return $"-{variable}^2*cos({variable}) + 2*{variable}*sin({variable}) + 2*cos({variable})";
+            }
+            if (func.StartsWith("cos(") && func.EndsWith(")"))
+            {
+                string inner = func.Substring(4, func.Length - 5);
+                if (inner == variable)
+                    return $"{variable}^2*sin({variable}) - 2*{variable}*cos({variable}) + 2*sin({variable})";
+            }
+            if (func.StartsWith("exp(") && func.EndsWith(")"))
+            {
+                string inner = func.Substring(4, func.Length - 5);
+                if (inner == variable)
+                    return $"{variable}^2*exp({variable}) - 2*{variable}*exp({variable}) + 2*exp({variable})";
+            }
+        }
+
+        // Generic fallback: u*v - ∫v*du (show symbolic)
+        string uPower = power == 1 ? variable : $"{variable}^{power}";
+        return $"{uPower}*{v} - ∫{duPoly}*{v} d{variable}";
     }
 
     private static double ComputeDefiniteIntegral(string expression, string variable, double lower, double upper)
