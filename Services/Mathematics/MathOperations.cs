@@ -586,7 +586,7 @@ public static class MathOperations
             {
                 if (innerDeriv.StartsWith("-"))
                     return innerDeriv.Substring(1); // -(-result) = result
-                return $"-({innerDeriv})";
+                return $"-{innerDeriv}";
             }
             return innerDeriv; // + just passes through
         }
