@@ -115,6 +115,8 @@ public static class MathOperations
                     return MathResult.ErrorResult($"Derivative not supported after {i + 1} differentiation(s).");
             }
 
+            result = SimplifyCalculusResult(result);
+
             string label = order == 1
                 ? $"d({expression}, {variable})"
                 : $"d^{order}({expression})/d{variable}^{order}";
@@ -150,7 +152,8 @@ public static class MathOperations
                 return MathResult.ErrorResult($"Expression must contain variable '{variable}'.");
 
             string integral = ComputeIndefiniteIntegral(expression, variable);
-            return MathResult.SuccessResult($"∫ {expression} d{variable}", integral + " + C");
+            string simplified = SimplifyCalculusResult(integral);
+            return MathResult.SuccessResult($"∫ {expression} d{variable}", simplified + " + C");
         }
         catch (Exception ex)
         {
@@ -1104,17 +1107,19 @@ public static class MathOperations
     {
         string clean = NormalizeExpression(expression);
 
-        // Check for known function integrals (degrees mode)
+        // Check for known function integrals (radians mode for calculus)
         string cleanTrimmed = StripOuterParentheses(clean);
 
         if (cleanTrimmed == "sin(" + variable + ")" || cleanTrimmed == "sin" + variable)
         {
-            double result = -Math.Cos(upper * Math.PI / 180.0) - (-Math.Cos(lower * Math.PI / 180.0));
+            // ∫sin(x)dx = -cos(x), evaluated from lower to upper
+            double result = -Math.Cos(upper) - (-Math.Cos(lower));
             return result;
         }
         if (cleanTrimmed == "cos(" + variable + ")" || cleanTrimmed == "cos" + variable)
         {
-            double result = Math.Sin(upper * Math.PI / 180.0) - Math.Sin(lower * Math.PI / 180.0);
+            // ∫cos(x)dx = sin(x)
+            double result = Math.Sin(upper) - Math.Sin(lower);
             return result;
         }
         if (cleanTrimmed == "exp(" + variable + ")" || cleanTrimmed == "exp" + variable)
@@ -1149,6 +1154,12 @@ public static class MathOperations
     {
         expression = NormalizeExpression(expression);
 
+        // Handle infinity: approach from one side with large values
+        if (double.IsPositiveInfinity(point) || double.IsNegativeInfinity(point))
+        {
+            return ComputeLimitAtInfinity(expression, variable, double.IsPositiveInfinity(point));
+        }
+
         // Check for division: numerator/denominator
         var divParts = SplitDivisionParts(expression);
         if (divParts != null)
@@ -1156,41 +1167,50 @@ public static class MathOperations
             string num = divParts.Value.Item1;
             string den = divParts.Value.Item2;
 
-            // Evaluate numerator and denominator at the point using numerical evaluation
-            double numVal = EvaluateExpressionNumerically(num, variable, point);
-            double denVal = EvaluateExpressionNumerically(den, variable, point);
+            // Evaluate numerator and denominator at the point (radians for trig)
+            double numVal = EvaluateExpressionNumerically(num, variable, point, useRadians: true);
+            double denVal = EvaluateExpressionNumerically(den, variable, point, useRadians: true);
 
             // If not indeterminate, just compute
             if (Math.Abs(denVal) > 1e-15)
                 return numVal / denVal;
 
-            // 0/0 or ∞/∞ - try special patterns first
-            string norm = expression.ToLower();
-
-            // Pattern: sin(a*x)/x as x→0 → a (in degrees mode: a*pi/180)
-            var sinAxOverX = System.Text.RegularExpressions.Regex.Match(norm, @"sin\((\d*\.?\d*)\*?x\)/x");
-            if (sinAxOverX.Success && Math.Abs(point) < 1e-10)
-            {
-                string aStr = sinAxOverX.Groups[1].Value;
-                double a = string.IsNullOrEmpty(aStr) ? 1 : double.Parse(aStr, System.Globalization.CultureInfo.InvariantCulture);
-                // Bot uses degrees: sin(a*x°) / x, using L'Hôpital or small-step
-                // Numerical approach for accuracy
-                return NumericalLimit(num, den, variable, point);
-            }
-
-            // Pattern: (1-cos(a*x))/x^2 as x→0 → a^2/2
-            var oneMinusCos = System.Text.RegularExpressions.Regex.Match(norm, @"\(1-cos\(");
-            if (oneMinusCos.Success && den.Contains("^2") && Math.Abs(point) < 1e-10)
-            {
-                return NumericalLimit(num, den, variable, point);
-            }
-
-            // General L'Hôpital's rule or numerical approach
+            // 0/0 or ∞/∞ - use numerical approach
             return NumericalLimit(num, den, variable, point);
         }
 
-        // No division - evaluate numerically
-        return EvaluateExpressionNumerically(expression, variable, point);
+        // No division - evaluate numerically (radians for trig)
+        return EvaluateExpressionNumerically(expression, variable, point, useRadians: true);
+    }
+
+    /// <summary>
+    /// Computes a limit as x approaches +∞ or -∞.
+    /// </summary>
+    private static double ComputeLimitAtInfinity(string expression, string variable, bool positive)
+    {
+        double bestResult = double.NaN;
+        double[] testPoints = positive
+            ? new[] { 100, 1000, 10000, 100000, 1e6, 1e8 }
+            : new[] { -100, -1000, -10000, -100000, -1e6, -1e8 };
+
+        double prev = double.NaN;
+        foreach (double x in testPoints)
+        {
+            double val = EvaluateExpressionNumerically(expression, variable, x, useRadians: true);
+            if (double.IsNaN(val) || double.IsInfinity(val))
+            {
+                bestResult = val;
+                break;
+            }
+            if (!double.IsNaN(prev) && Math.Abs(val - prev) < 1e-6)
+            {
+                bestResult = val;
+                break;
+            }
+            prev = val;
+            bestResult = val;
+        }
+        return bestResult;
     }
 
     /// <summary>
@@ -1203,10 +1223,10 @@ public static class MathOperations
         for (int exp = 2; exp <= 10; exp++)
         {
             double h = Math.Pow(10, -exp);
-            double numP = EvaluateExpressionNumerically(numerator, variable, point + h);
-            double denP = EvaluateExpressionNumerically(denominator, variable, point + h);
-            double numM = EvaluateExpressionNumerically(numerator, variable, point - h);
-            double denM = EvaluateExpressionNumerically(denominator, variable, point - h);
+            double numP = EvaluateExpressionNumerically(numerator, variable, point + h, useRadians: true);
+            double denP = EvaluateExpressionNumerically(denominator, variable, point + h, useRadians: true);
+            double numM = EvaluateExpressionNumerically(numerator, variable, point - h, useRadians: true);
+            double denM = EvaluateExpressionNumerically(denominator, variable, point - h, useRadians: true);
 
             if (Math.Abs(denP) > 1e-30 && Math.Abs(denM) > 1e-30)
             {
@@ -1225,7 +1245,7 @@ public static class MathOperations
     /// <summary>
     /// Numerically evaluates an expression at a given point using simple token replacement.
     /// </summary>
-    private static double EvaluateExpressionNumerically(string expression, string variable, double value)
+    private static double EvaluateExpressionNumerically(string expression, string variable, double value, bool useRadians = false)
     {
         string expr = expression;
         string valStr = value.ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
@@ -1249,14 +1269,16 @@ public static class MathOperations
             expr = System.Text.RegularExpressions.Regex.Replace(expr, @"sin\(([^()]+)\)", match =>
             {
                 double innerVal = EvalSimpleNumeric(match.Groups[1].Value);
-                return Math.Sin(innerVal * Math.PI / 180.0).ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
+                double angle = useRadians ? innerVal : innerVal * Math.PI / 180.0;
+                return Math.Sin(angle).ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
             });
 
             // Handle cos(...)
             expr = System.Text.RegularExpressions.Regex.Replace(expr, @"cos\(([^()]+)\)", match =>
             {
                 double innerVal = EvalSimpleNumeric(match.Groups[1].Value);
-                return Math.Cos(innerVal * Math.PI / 180.0).ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
+                double angle = useRadians ? innerVal : innerVal * Math.PI / 180.0;
+                return Math.Cos(angle).ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
             });
 
             // Handle ln(...)
@@ -1282,6 +1304,11 @@ public static class MathOperations
                 {
                     // 2(-3) → 2*-3, sin(-3) → sin*-3 — strip parens, sin/cos regex will handle
                     return $"*{inner}";
+                }
+                else if (idx > 0 && expr[idx - 1] == '(')
+                {
+                    // Function call context: sin((-0.01)) → strip parens so sin regex can match
+                    return inner;
                 }
                 else
                 {
@@ -1370,6 +1397,221 @@ public static class MathOperations
                 result += $" + {resultTerms[i]}";
         }
         return result;
+    }
+
+    /// <summary>
+    /// Post-processes calculus results: strips redundant parens, combines like terms,
+    /// moves constants to front, cleans formatting.
+    /// </summary>
+    private static string SimplifyCalculusResult(string expression)
+    {
+        if (string.IsNullOrWhiteSpace(expression)) return expression;
+
+        // Handle "expr + C" for integrals
+        string cSuffix = "";
+        string expr = expression.Trim();
+        if (expr.EndsWith("+ C"))
+        {
+            cSuffix = " + C";
+            expr = expr.Substring(0, expr.Length - 3).TrimEnd();
+        }
+
+        // Step 1: Strip redundant outer parens
+        expr = StripRedundantOuterParens(expr);
+
+        // Step 2: Clean +(expr) and -(expr) (only at term boundaries, not inside nested parens)
+        expr = Regex.Replace(expr, @"(?<!\()\+\s*\(([^()]+)\)", "+$1");
+        expr = Regex.Replace(expr, @"(?<!\()-\s*\(([^()]+)\)", "-$1");
+        // Clean nested: (+(x^3)) → x^3
+        expr = Regex.Replace(expr, @"\(\+\(([^()]+)\)\)", "$1");
+        // Clean +(+(expr)) → +expr
+        expr = Regex.Replace(expr, @"\+\(\+([^()]+)\)\)", "+$1");
+
+        // Step 3: Clean (exp(x)) → exp(x), (sin(x)) → sin(x), etc.
+        expr = Regex.Replace(expr, @"\((exp\([^()]+\))\)", "$1");
+        expr = Regex.Replace(expr, @"\((sin\([^()]+\))\)", "$1");
+        expr = Regex.Replace(expr, @"\((cos\([^()]+\))\)", "$1");
+        expr = Regex.Replace(expr, @"\((ln\([^()]+\))\)", "$1");
+
+        // Step 4: Move trailing constant to front: exp(3x)*(3) → 3*exp(3*x)
+        expr = Regex.Replace(expr, @"(exp\([^()]+\))\*\((\d+\.?\d*)\)", "$2*$1");
+        expr = Regex.Replace(expr, @"(sin\([^()]+\))\*\((\d+\.?\d*)\)", "$2*$1");
+        expr = Regex.Replace(expr, @"(cos\([^()]+\))\*\((\d+\.?\d*)\)", "$2*$1");
+
+        // Step 5: Combine additive terms with same structure
+        expr = CombineLikeTerms(expr);
+
+        return expr + cSuffix;
+    }
+
+    /// <summary>
+    /// Strips outer parentheses when they are redundant (balanced and nothing follows).
+    /// </summary>
+    private static string StripRedundantOuterParens(string expr)
+    {
+        expr = expr.Trim();
+        while (expr.StartsWith("(") && expr.EndsWith(")"))
+        {
+            int depth = 0;
+            bool balanced = true;
+            for (int i = 0; i < expr.Length; i++)
+            {
+                if (expr[i] == '(') depth++;
+                if (expr[i] == ')') depth--;
+                if (depth == 0 && i < expr.Length - 1)
+                {
+                    balanced = false;
+                    break;
+                }
+            }
+            if (balanced && depth == 0)
+                expr = expr.Substring(1, expr.Length - 2).Trim();
+            else
+                break;
+        }
+        return expr;
+    }
+
+    /// <summary>
+    /// Splits an expression into additive terms, extracts coefficient + structure,
+    /// groups by structure, and sums coefficients.
+    /// </summary>
+    private static string CombineLikeTerms(string expression)
+    {
+        // Skip combining if expression has division (fractions like "x^3 / 3")
+        // — our term parser can't handle those correctly
+        if (expression.Contains("/"))
+            return expression;
+
+        var terms = SplitAdditiveTerms(expression);
+        if (terms.Count <= 1) return expression;
+
+        // Parse each term into (coefficient, structure)
+        var parsed = new List<(double coeff, string structure)>();
+        foreach (var term in terms)
+        {
+            var (coeff, structure) = ExtractCoefficientAndStructure(term);
+            parsed.Add((coeff, structure));
+        }
+
+        // Group by structure, sum coefficients
+        var grouped = new Dictionary<string, double>();
+        var order = new List<string>();
+        foreach (var (coeff, structure) in parsed)
+        {
+            if (!grouped.ContainsKey(structure))
+            {
+                grouped[structure] = 0;
+                order.Add(structure);
+            }
+            grouped[structure] += coeff;
+        }
+
+        // Build result terms
+        var resultTerms = new List<(double coeff, string structure)>();
+        foreach (var key in order)
+        {
+            double c = grouped[key];
+            if (Math.Abs(c) > 1e-10)
+                resultTerms.Add((c, key));
+        }
+
+        // Sort: polynomial-like terms by power desc, then mixed terms, then constants last
+        resultTerms = resultTerms
+            .OrderByDescending(t => {
+                if (string.IsNullOrEmpty(t.structure)) return -1; // constants last
+                if (Regex.IsMatch(t.structure, @"^x\^(\d+)$"))
+                    return int.Parse(Regex.Match(t.structure, @"x\^(\d+)").Groups[1].Value);
+                if (t.structure == "x") return 1;
+                return 0; // mixed terms after polynomial, before constants
+            })
+            .ToList();
+
+        var sb = new System.Text.StringBuilder();
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        foreach (var (coeff, structure) in resultTerms)
+        {
+            if (sb.Length > 0)
+            {
+                if (coeff >= 0)
+                    sb.Append(" + ");
+                else
+                    sb.Append(" - ");
+            }
+            else if (coeff < 0)
+            {
+                sb.Append("-");
+            }
+
+            double absCoeff = Math.Abs(coeff);
+            if (string.IsNullOrEmpty(structure))
+            {
+                // Pure constant
+                sb.Append(absCoeff.ToString("G10", culture));
+            }
+            else if (Regex.IsMatch(structure, @"^x\^(\d+)$"))
+            {
+                // Polynomial term like x^3: use FormatTerm
+                int power = int.Parse(Regex.Match(structure, @"x\^(\d+)").Groups[1].Value);
+                sb.Append(FormatTerm(absCoeff, power));
+            }
+            else if (structure == "x")
+            {
+                // Linear term: use FormatTerm
+                sb.Append(FormatTerm(absCoeff, 1));
+            }
+            else if (Math.Abs(absCoeff - 1) < 1e-10)
+            {
+                sb.Append(structure);
+            }
+            else
+            {
+                // Mixed term like x^2*exp(x)
+                sb.Append(absCoeff.ToString("G10", culture));
+                sb.Append("*");
+                sb.Append(structure);
+            }
+        }
+
+        return sb.Length > 0 ? sb.ToString() : expression;
+    }
+
+    /// <summary>
+    /// Extracts a numeric coefficient and "structure" (variable part) from a term.
+    /// e.g. "3x^2*exp(x)" → (3, "x^2*exp(x)"), "(x^2)*cos(x)" → (1, "x^2*cos(x)")
+    /// </summary>
+    private static (double coeff, string structure) ExtractCoefficientAndStructure(string term)
+    {
+        string t = term.Trim();
+        if (string.IsNullOrEmpty(t)) return (0, "");
+
+        // Handle leading sign
+        double sign = 1;
+        if (t.StartsWith("-"))
+        {
+            sign = -1;
+            t = t.Substring(1).Trim();
+        }
+        else if (t.StartsWith("+"))
+        {
+            t = t.Substring(1).Trim();
+        }
+
+        // Clean outer parens from the whole term: (3x^2)*cos(x) → 3x^2*cos(x)
+        t = StripRedundantOuterParens(t);
+
+        // Try to extract leading number followed by * or end
+        var match = Regex.Match(t, @"^(\d+\.?\d*)\*?(.*)$");
+        if (match.Success)
+        {
+            double coeff = double.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            string rest = match.Groups[2].Value.Trim();
+            if (rest.StartsWith("*")) rest = rest.Substring(1).Trim();
+            return (sign * coeff, rest);
+        }
+
+        // No leading number: coefficient is 1
+        return (sign * 1, t);
     }
 
     private static string ExpandExpression(string expression)

@@ -230,10 +230,16 @@ public static class MathOperationHandler
             return MathResult.ErrorResult("lim() requires exactly two arguments: expression and point.");
 
         string expression = args[0];
-        string pointStr = args[1];
+        string pointStr = args[1].Trim().ToLowerInvariant();
 
-        if (!double.TryParse(pointStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double point))
-            return MathResult.ErrorResult("Point must be a number.");
+        // Check for infinity
+        double point;
+        if (pointStr is "inf" or "infinity" or "+inf" or "+infinity" or "∞" or "+∞")
+            point = double.PositiveInfinity;
+        else if (pointStr is "-inf" or "-infinity" or "-∞")
+            point = double.NegativeInfinity;
+        else if (!double.TryParse(args[1], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out point))
+            return MathResult.ErrorResult("Point must be a number, or inf/∞ for infinity.");
 
         string variable = "x";
         if (expression.Contains('x'))
