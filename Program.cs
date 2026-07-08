@@ -112,6 +112,9 @@ botClient.StartReceiving(
                                 if (expr.StartsWith("/calc", StringComparison.OrdinalIgnoreCase))
                                     expr = expr.Substring(5).Trim();
 
+                                // Strip trailing commas (common when listing equations)
+                                expr = expr.TrimEnd(',').Trim();
+
                                 if (string.IsNullOrWhiteSpace(expr))
                                     continue;
 

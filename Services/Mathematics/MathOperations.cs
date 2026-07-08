@@ -573,7 +573,15 @@ public static class MathOperations
             string v = productParts[1];
             string du = TrigDerivative(u, variable);
             string dv = TrigDerivative(v, variable);
-            return $"({du})*({v}) + ({u})*({dv})";
+            string duDisplay = WrapIfNeeded(du);
+            string vDisplay = WrapIfNeeded(v);
+            string uDisplay = WrapIfNeeded(u);
+            string dvDisplay = WrapIfNeeded(dv);
+            string term1 = du == "0" ? "0" : dv == "1" ? $"{duDisplay}*{vDisplay}" : du == "1" ? vDisplay : $"{duDisplay}*{vDisplay}";
+            string term2 = dv == "0" ? "0" : du == "1" ? $"{uDisplay}*{dvDisplay}" : dv == "1" ? uDisplay : $"{uDisplay}*{dvDisplay}";
+            if (term1 == "0") return term2;
+            if (term2 == "0") return term1;
+            return $"{term1} + {term2}";
         }
 
         // Handle leading + or - sign: strip it, derive, reapply
@@ -605,6 +613,14 @@ public static class MathOperations
             string dInner = TrigDerivative(inner, variable);
             if (dInner == "1") return $"-sin({inner})";
             return $"-sin({inner})*({dInner})";
+        }
+
+        if (expression.StartsWith("tan(") && expression.EndsWith(")"))
+        {
+            string inner = expression.Substring(4, expression.Length - 5);
+            string dInner = TrigDerivative(inner, variable);
+            if (dInner == "1") return $"1+tan({inner})^2";
+            return $"(1+tan({inner})^2)*({dInner})";
         }
 
         if (expression.StartsWith("exp(") && expression.EndsWith(")"))
@@ -707,6 +723,21 @@ public static class MathOperations
                 result += $" + {list[i]}";
         }
         return result;
+    }
+
+    private static string WrapIfNeeded(string expr)
+    {
+        // Only wrap in parens if expr has multiple additive terms (contains + or non-leading -)
+        int depth = 0;
+        for (int i = 0; i < expr.Length; i++)
+        {
+            char c = expr[i];
+            if (c == '(') depth++;
+            else if (c == ')') depth--;
+            else if (depth == 0 && c == '+') return $"({expr})";
+            else if (depth == 0 && c == '-' && i > 0) return $"({expr})";
+        }
+        return expr;
     }
 
     private static string ComputeIndefiniteIntegral(string expression, string variable)
