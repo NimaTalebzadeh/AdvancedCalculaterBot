@@ -546,9 +546,11 @@ public static class MathOperations
         if (!expression.Contains(variable))
             return "0";
 
+        // Check for functions or division (quotient rule)
         if (expression.Contains("sin") || expression.Contains("cos") || expression.Contains("tan") ||
             expression.Contains("asin") || expression.Contains("acos") || expression.Contains("atan") ||
-            expression.Contains("ln") || expression.Contains("log") || expression.Contains("exp"))
+            expression.Contains("ln") || expression.Contains("log") || expression.Contains("exp") ||
+            expression.Contains("sqrt") || expression.Contains("/"))
         {
             return TrigDerivative(expression, variable);
         }
@@ -651,6 +653,32 @@ public static class MathOperations
             string dInner = TrigDerivative(inner, variable);
             if (dInner == "1") return $"1/({inner}*ln(10))";
             return $"({dInner})/({inner}*ln(10))";
+        }
+
+        if (expression.StartsWith("sqrt(") && expression.EndsWith(")"))
+        {
+            string inner = expression.Substring(5, expression.Length - 6);
+            string dInner = TrigDerivative(inner, variable);
+            // d/dx sqrt(u) = 1/(2*sqrt(u)) * du/dx
+            if (dInner == "1") return $"1/(2*sqrt({inner}))";
+            return $"({dInner})/(2*sqrt({inner}))";
+        }
+
+        // Handle quotient rule: (u/v)' = (u'v - uv') / v^2
+        var divParts = SplitDivisionParts(expression);
+        if (divParts != null)
+        {
+            string u = divParts.Value.Item1;
+            string v = divParts.Value.Item2;
+            string du = TrigDerivative(u, variable);
+            string dv = TrigDerivative(v, variable);
+            string uD = WrapIfNeeded(u);
+            string vD = WrapIfNeeded(v);
+            string duD = WrapIfNeeded(du);
+            string dvD = WrapIfNeeded(dv);
+            string num = $"({duD}*{vD} - {uD}*{dvD})";
+            string den = $"({vD})^2";
+            return $"{num}/{den}";
         }
 
         return PolynomialDerivative(expression, variable);
@@ -790,7 +818,15 @@ public static class MathOperations
             {
                 return $"ln({denominator})";
             }
-            // Check with coefficient: k*f'(x)/f(x) → k*ln|f(x)|
+            // Check for arctan pattern: 1/(x^2+1) → arctan(x), 1/(a^2x^2+1) → arctan(ax)/a
+            string cleanDenom = StripOuterParentheses(denominator);
+            if (IsOne(numerator))
+            {
+                // Pattern: 1/(x^2+1) → arctan(x)
+                string arctanResult = TryArctanPattern(cleanDenom, variable);
+                if (arctanResult != null) return arctanResult;
+            }
+            // Check with coefficient: k/(x^2+1) → k*arctan(x)
             var coeffMatch = Regex.Match(numerator, @"^(\d+\.?\d*)\*?(.+)$");
             if (coeffMatch.Success)
             {
@@ -983,6 +1019,49 @@ public static class MathOperations
         }
         catch { }
         return "";
+    }
+
+    /// <summary>
+    /// Checks if an expression equals "1" (handles "1", "(1)", etc.)
+    /// </summary>
+    private static bool IsOne(string expr)
+    {
+        string clean = StripOuterParentheses(expr.Trim());
+        return clean == "1";
+    }
+
+    /// <summary>
+    /// Tries to match a denominator against arctan patterns: x^2+1, a^2x^2+1, etc.
+    /// Returns "arctan(x)" or "arctan(ax)/a" or null if no match.
+    /// </summary>
+    private static string? TryArctanPattern(string denominator, string variable)
+    {
+        // Normalize: strip spaces
+        string d = denominator.Replace(" ", "");
+
+        // Pattern: x^2+1 or 1+x^2
+        if (d == $"{variable}^2+1" || d == $"1+{variable}^2")
+            return $"arctan({variable})";
+
+        // Pattern: a^2*x^2+1 → arctan(ax)/a
+        var match = Regex.Match(d, $@"^(\d+\.?\d*)\*?{Regex.Escape(variable)}\^2\+1$");
+        if (!match.Success)
+            match = Regex.Match(d, $@"^1\+(\d+\.?\d*)\*?{Regex.Escape(variable)}\^2$");
+        if (match.Success && double.TryParse(match.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double a))
+        {
+            if (Math.Abs(a - 1) < ZeroTolerance) return $"arctan({variable})";
+            double sqrtA = Math.Sqrt(a);
+            return $"arctan({sqrtA}*{variable})/{sqrtA}";
+        }
+
+        // Pattern: (x^2+1) with outer parens
+        if (d.StartsWith("(") && d.EndsWith(")"))
+        {
+            string inner = StripOuterParentheses(d);
+            if (inner != d) return TryArctanPattern(inner, variable);
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -1319,6 +1398,13 @@ public static class MathOperations
                 return Math.Log(innerVal).ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
             });
 
+            // Handle sqrt(...)
+            expr = System.Text.RegularExpressions.Regex.Replace(expr, @"sqrt\(([^()]+)\)", match =>
+            {
+                double innerVal = EvalSimpleNumeric(match.Groups[1].Value);
+                return Math.Sqrt(innerVal).ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
+            });
+
             // Evaluate bare parenthesized expressions like (3.14)
             expr = System.Text.RegularExpressions.Regex.Replace(expr, @"\(([^()]+)\)", match =>
             {
@@ -1451,8 +1537,9 @@ public static class MathOperations
         expr = StripRedundantOuterParens(expr);
 
         // Step 2: Clean +(expr) and -(expr) (only at term boundaries, not inside nested parens)
-        expr = Regex.Replace(expr, @"(?<!\()\+\s*\(([^()]+)\)", "+$1");
-        expr = Regex.Replace(expr, @"(?<!\()-\s*\(([^()]+)\)", "-$1");
+        // Only strip when closing ) is NOT followed by * or / (to preserve multiplication semantics)
+        expr = Regex.Replace(expr, @"(?<!\()\+\s*\(([^()]+)\)(?![a-zA-Z0-9\(\*\/])", "+$1");
+        expr = Regex.Replace(expr, @"(?<!\()-\s*\(([^()]+)\)(?![a-zA-Z0-9\(\*\/])", "-$1");
         // Clean nested: (+(x^3)) → x^3
         expr = Regex.Replace(expr, @"\(\+\(([^()]+)\)\)", "$1");
         // Clean +(+(expr)) → +expr
@@ -1949,6 +2036,7 @@ public static class MathOperations
     private static string ConvertENotation(string expression)
     {
         // Convert e^(expr) to exp(expr) - handles nested parens
+        // Also convert a^(expr) to exp(expr*ln(a)) for any numeric base
         var sb = new System.Text.StringBuilder();
         int i = 0;
         while (i < expression.Length)
@@ -1992,6 +2080,50 @@ public static class MathOperations
             {
                 sb.Append(expression[i]);
                 i++;
+            }
+
+            // After appending a char, check for number^pattern (e.g., 2^x, 10^(x+1))
+            // This handles non-e bases like 2^x → exp(x*ln(2))
+            if (sb.Length >= 1 && i < expression.Length && expression[i] == '^'
+                && i + 1 < expression.Length && char.IsDigit(sb[sb.Length - 1])
+                && sb[sb.Length - 1] != 'e') // not already part of scientific notation
+            {
+                // Collect the base number
+                int baseEnd = sb.Length - 1;
+                int baseStart = baseEnd;
+                while (baseStart > 0 && (char.IsDigit(sb[baseStart - 1]) || sb[baseStart - 1] == '.'))
+                    baseStart--;
+                string baseNum = sb.ToString(baseStart, baseEnd - baseStart + 1);
+
+                i++; // skip ^
+                string inner;
+                if (i < expression.Length && expression[i] == '(')
+                {
+                    // a^(...) - find matching close paren
+                    int depth = 1;
+                    int innerStart = i + 1;
+                    i++;
+                    while (i < expression.Length && depth > 0)
+                    {
+                        if (expression[i] == '(') depth++;
+                        else if (expression[i] == ')') depth--;
+                        if (depth > 0) i++;
+                    }
+                    inner = expression.Substring(innerStart, i - innerStart);
+                    i++; // skip closing )
+                }
+                else
+                {
+                    // a^x - take single token
+                    int innerStart = i;
+                    while (i < expression.Length && char.IsLetterOrDigit(expression[i]))
+                        i++;
+                    inner = expression.Substring(innerStart, i - innerStart);
+                }
+
+                // Replace baseNum^inner with exp(inner*ln(baseNum))
+                sb.Length = baseStart;
+                sb.Append($"exp({inner}*ln({baseNum}))");
             }
         }
         return sb.ToString();

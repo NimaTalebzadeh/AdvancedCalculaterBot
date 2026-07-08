@@ -147,7 +147,7 @@ public static class EquationSolverService
     }
 
     /// <summary>
-    /// Converts e^(expr) notation to exp(expr) for proper handling.
+    /// Converts e^(expr) and a^(expr) notation to exp(...) for proper handling.
     /// </summary>
     private static string NormalizeENotation(string expression)
     {
@@ -192,6 +192,48 @@ public static class EquationSolverService
             {
                 sb.Append(expression[i]);
                 i++;
+            }
+
+            // Handle a^(...) or a^x for numeric bases other than e
+            // After appending a digit, check if next char is ^ (but not e^)
+            if (sb.Length >= 1 && i < expression.Length && expression[i] == '^'
+                && char.IsDigit(sb[sb.Length - 1]) && sb[sb.Length - 1] != 'e'
+                && i + 1 < expression.Length)
+            {
+                // Collect the base number from sb
+                int baseEnd = sb.Length - 1;
+                int baseStart = baseEnd;
+                while (baseStart > 0 && (char.IsDigit(sb[baseStart - 1]) || sb[baseStart - 1] == '.'))
+                    baseStart--;
+                string baseNum = sb.ToString(baseStart, baseEnd - baseStart + 1);
+
+                i++; // skip ^
+                string inner;
+                if (i < expression.Length && expression[i] == '(')
+                {
+                    int depth = 1;
+                    int innerStart = i + 1;
+                    i++;
+                    while (i < expression.Length && depth > 0)
+                    {
+                        if (expression[i] == '(') depth++;
+                        else if (expression[i] == ')') depth--;
+                        if (depth > 0) i++;
+                    }
+                    inner = expression.Substring(innerStart, i - innerStart);
+                    i++; // skip closing )
+                }
+                else
+                {
+                    // Take until operator or end
+                    int innerStart = i;
+                    while (i < expression.Length && expression[i] != '+' && expression[i] != '-' && expression[i] != '*' && expression[i] != '/' && expression[i] != '=')
+                        i++;
+                    inner = expression.Substring(innerStart, i - innerStart);
+                }
+
+                sb.Length = baseStart;
+                sb.Append($"exp({inner}*ln({baseNum}))");
             }
         }
         return sb.ToString();
