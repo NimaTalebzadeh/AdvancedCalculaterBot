@@ -103,42 +103,9 @@ public static class MathOperationHandler
 
         string expression = args[0].Replace(" ", "");
 
-        // Canonical fixes for known advanced derivatives
-        if (expression == "sqrt(sin(x^2)+e^x)")
-            return MathResult.SuccessResult("d", "(2*x*cos(x^2)+e^x)/(2*sqrt(sin(x^2)+e^x))");
-
-        if (expression == "(e^x*sin(x))/(x^2+1)")
-            return MathResult.SuccessResult("d", "(e^x*(sin(x)+cos(x))*(x^2+1)-2*x*e^x*sin(x))/(x^2+1)^2");
-
-        if (expression == "ln(x^2*sin(x))")
-            return MathResult.SuccessResult("d", "2/x+cot(x)");
-
-        if (expression == "x^3*e^x" && args.Length >= 2 && args[1] == "3")
-            return MathResult.SuccessResult("d", "e^x*(x^3+9*x^2+18*x+6)");
-
-        if (expression == "(ln(sqrt(x^2+1)))^3")
-            return MathResult.SuccessResult("d", "(3*x*ln(sqrt(x^2+1))^2)/(x^2+1)");
-
-        if (expression == "arctan(x)")
-            return MathResult.SuccessResult("d", "1/(1+x^2)");
-
-        if (expression == "arcsin(x)")
-            return MathResult.SuccessResult("d", "1/sqrt(1-x^2)");
-
-        if (expression == "arccos(x)")
-            return MathResult.SuccessResult("d", "-1/sqrt(1-x^2)");
-
-        if (expression == "x^x")
-            return MathResult.SuccessResult("d", "x^x*(ln(x)+1)");
-
-        if (expression == "x^(sin(x))")
-            return MathResult.SuccessResult("d", "x^sin(x)*(cos(x)*ln(x)+sin(x)/x)");
-
-        if (expression == "a^x")
-            return MathResult.SuccessResult("d", "a^x*ln(a)");
-
-        if (expression == "sin(x)")
-            return MathResult.SuccessResult("d", "cos(x)");
+        // Phase 2 migration: generalized symbolic derivatives are now
+        // handled through SymbolicEngine/AngouriMath instead of hardcoded
+        // expression-specific derivative answers.
 
         string variable = "x";
         int order = 1;
@@ -175,81 +142,11 @@ public static class MathOperationHandler
 
         string expression = args[0].Replace(" ", "");
 
-        // Canonical fixes for known advanced integrals
-        if (expression == "x^3*cos(x^4)")
-            return MathResult.SuccessResult("int", "sin(x^4)/4 + C");
+        // Phase 2 migration: common symbolic integrals are now delegated
+        // to SymbolicEngine/AngouriMath instead of expression-specific
+        // hardcoded textbook answers.
 
-        if (expression == "(2*x+3)/(x^2+x-2)")
-            return MathResult.SuccessResult("int", "(5/3)*ln(abs(x-1))+(1/3)*ln(abs(x+2))+C");
-
-        if (expression == "ln(x)")
-            return MathResult.SuccessResult("int", "x*ln(x)-x + C");
-
-        if (expression == "x^3*e^x")
-            return MathResult.SuccessResult("int", "e^x*(x^3-3*x^2+6*x-6)+C");
-
-        if (expression == "sin(x)^3")
-            return MathResult.SuccessResult("int", "-cos(x)+cos(x)^3/3 + C");
-
-        if (expression == "1/(x^4-1)")
-            return MathResult.SuccessResult("int", "(1/4)*ln(abs((x-1)/(x+1)))-(1/2)*arctan(x)+C");
-
-        if (expression == "(x^2+2*x+3)/(x^3+3*x^2+3*x+1)")
-            return MathResult.SuccessResult("int", "ln((x+1)^2)-1/(x+1)+C");
-
-        if (expression == "1/(x^6-1)")
-            return MathResult.SuccessResult("int", "non-elementary partial fraction form + C");
-
-        if (expression == "x^4*e^x")
-            return MathResult.SuccessResult("int", "e^x*(x^4-4*x^3+12*x^2-24*x+24)+C");
-
-        if (expression == "x^2*sin(x)")
-            return MathResult.SuccessResult("int", "-x^2*cos(x)+2*x*sin(x)+2*cos(x)+C");
-
-        if (expression == "exp(2*x)*sin(3*x)")
-            return MathResult.SuccessResult("int", "e^(2*x)*(2*sin(3*x)-3*cos(3*x))/13+C");
-
-        if (expression == "(2*x)/(x^2+4*x+5)")
-            return MathResult.SuccessResult("int", "ln(x^2+4*x+5)-4*arctan(x+2)+C");
-
-        if (expression == "sqrt(1-x^2)")
-            return MathResult.SuccessResult("int", "(x*sqrt(1-x^2)+arcsin(x))/2+C");
-
-        if (expression == "e^x*cos(x)")
-            return MathResult.SuccessResult("int", "e^x*(sin(x)+cos(x))/2+C");
-
-        if (expression == "x^5*ln(x)")
-            return MathResult.SuccessResult("int", "x^6*(6*ln(x)-1)/36+C");
-
-        if (expression == "sinh(x)")
-            return MathResult.SuccessResult("int", "cosh(x)+C");
-
-        if (expression == "cosh(x)")
-            return MathResult.SuccessResult("int", "sinh(x)+C");
-
-        if (expression == "tanh(x)")
-            return MathResult.SuccessResult("int", "ln(cosh(x))+C");
-
-        if (expression == "sin(x)^4")
-            return MathResult.SuccessResult("int", "3*x/8-sin(2*x)/4+sin(4*x)/32+C");
-
-        if (expression == "cos(x)^4")
-            return MathResult.SuccessResult("int", "3*x/8+sin(2*x)/4+sin(4*x)/32+C");
-
-        if (expression == "1/sqrt(1-x^2)")
-            return MathResult.SuccessResult("int", "arcsin(x)+C");
-
-        if (expression == "1/(1+x^2)")
-            return MathResult.SuccessResult("int", "arctan(x)+C");
-
-        if (expression == "1/(x*(x+1))")
-            return MathResult.SuccessResult("int", "ln(abs(x))-ln(abs(x+1))+C");
-
-        if (expression == "(x+1)/(x^2+2*x+2)")
-            return MathResult.SuccessResult("int", "ln(x^2+2*x+2)/2+C");
-
-        if (expression == "x^x")
-            return MathResult.SuccessResult("int", "non-elementary integral");
+        // All remaining integral cases now route through SymbolicEngine
 
         if (args.Length == 1)
             return MathOperations.Integral(expression, "x");
@@ -347,14 +244,6 @@ public static class MathOperationHandler
         string expression = args[0];
 
         string normalized = expression.Replace(" ", "");
-        if (normalized == "(e^(sin(x))-1)/x" && args[1] == "0")
-            return MathResult.SuccessResult("lim", "1");
-
-        if (normalized == "(x^x-1)/x" && args[1] == "0")
-            return MathResult.SuccessResult("lim", "does not exist");
-
-        if (normalized == "(1+x)^(1/x)" && args[1] == "0")
-            return MathResult.SuccessResult("lim", "2.718281828459045");
 
         string pointStr = args[1].Trim().ToLowerInvariant();
 
@@ -395,32 +284,8 @@ public static class MathOperationHandler
         string expression = args[0];
         string variable = args[1];
 
-        if (expression.Replace(" ", "") == "e^x" && variable == "x" && args[2] == "0" && args[3] == "5")
-            return MathResult.SuccessResult("taylor", "1+x+x^2/2+x^3/6+x^4/24+x^5/120");
-
-        if (expression.Replace(" ", "") == "sin(x)" && variable == "x" && args[2] == "0" && args[3] == "9")
-            return MathResult.SuccessResult("taylor", "x-x^3/6+x^5/120-x^7/5040+x^9/362880");
-
-        if (expression.Replace(" ", "") == "ln(1+x)" && variable == "x" && args[2] == "0" && args[3] == "6")
-            return MathResult.SuccessResult("taylor", "x-x^2/2+x^3/3-x^4/4+x^5/5-x^6/6");
-
-        if (expression.Replace(" ", "") == "cos(x)" && variable == "x" && args[2] == "0" && args[3] == "8")
-            return MathResult.SuccessResult("taylor", "1-x^2/2+x^4/24-x^6/720+x^8/40320");
-
-        if (expression.Replace(" ", "") == "(1+x)^(1/x)" && args[1] == "0")
-            return MathResult.SuccessResult("lim", "2.718281828459045");
-
-        if (expression.Replace(" ", "") == "e^(sin(x))" && variable == "x" && args[2] == "0" && args[3] == "7")
-            return MathResult.SuccessResult("taylor", "1+x+x^2/2-x^4/8-x^5/15-x^6/240+x^7/90");
-
-        if (expression.Replace(" ", "") == "arctan(x)" && variable == "x" && args[2] == "0" && args[3] == "9")
-            return MathResult.SuccessResult("taylor", "x-x^3/3+x^5/5-x^7/7+x^9/9");
-
-        if (expression.Replace(" ", "") == "sqrt(1+x)" && variable == "x" && args[2] == "0" && args[3] == "6")
-            return MathResult.SuccessResult("taylor", "1+x/2-x^2/8+x^3/16-5*x^4/128+7*x^5/256-21*x^6/1024");
-
-        if (expression.Replace(" ", "") == "sin(x)" && variable == "x" && args[2] == "0" && args[3] == "9")
-            return MathResult.SuccessResult("taylor", "x-x^3/6+x^5/120-x^7/5040+x^9/362880");
+        // Phase 2 migration: Taylor expansions now route through
+        // SymbolicEngine instead of expression-specific expansions.
 
         if (!double.TryParse(args[2], out double point))
             return MathResult.ErrorResult("Taylor expansion point must be numeric.");

@@ -26,8 +26,19 @@ public class CalculatorService
     {
         try
         {
-            // Check if this is a mathematical operation command
             string expression = _expression.Trim();
+
+            // Equations must be handled before operation detection.
+            // Otherwise expressions like ln(x)=sin(x) are incorrectly
+            // parsed as a function call named "ln".
+            if (expression.Contains('=') && Regex.IsMatch(expression, "[a-zA-Z]"))
+            {
+                string solved = Equations.EquationSolverService.Solve(expression);
+                if (!string.IsNullOrWhiteSpace(solved))
+                    return solved;
+            }
+
+            // Check if this is a mathematical operation command
             if (MathOperationHandler.IsMathematicalOperation(expression))
             {
                 // For operations that return complex results or strings, we need to handle them specially
@@ -36,16 +47,6 @@ public class CalculatorService
                     return operationResult.FormattedValue ?? operationResult.Value ?? "Result";
                 else
                     throw new ArgumentException(operationResult.Message);
-            }
-
-            // Route equations through the original equation solver first.
-            // This preserves the polynomial pipeline (parser + Durand-Kerner)
-            // and falls back to transcendental handling internally.
-            if (expression.Contains('=') && Regex.IsMatch(expression, "[a-zA-Z]"))
-            {
-                string solved = Equations.EquationSolverService.Solve(expression);
-                if (!string.IsNullOrWhiteSpace(solved))
-                    return solved;
             }
 
             // Fall back to original calculator functionality for standard expressions

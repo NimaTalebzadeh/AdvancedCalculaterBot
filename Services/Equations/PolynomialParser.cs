@@ -5,14 +5,14 @@ namespace AdvancedCalculaterBot.Services.Equations;
 
 /// <summary>
 /// Parses a single-variable (x) polynomial from text into a coefficient array,
-/// lowest-degree first (index i = coefficient of x^i). Does not handle
-/// parentheses or division — those equations should use <see cref="LinearReducer"/>.
+/// lowest-degree first (index i = coefficient of x^i).
+/// Supports explicit multiplication forms like 3*x^2.
 /// </summary>
 public static class PolynomialParser
 {
     /// <summary>
     /// True if <paramref name="input"/> is a bare polynomial (no parentheses,
-    /// no division, only digits/signs/x/^). Cheap check — does not validate term grammar.
+    // no division/parentheses, only polynomial-safe operators.
     /// </summary>
     public static bool CanParse(string input)
     {
@@ -20,7 +20,7 @@ public static class PolynomialParser
         foreach (char c in input)
         {
             bool ok = char.IsDigit(c) || char.IsLetter(c) ||
-                      c == 'x' || c == 'X' || c == '^' ||
+                      c == 'x' || c == 'X' || c == '^' || c == '*' ||
                       c == '+' || c == '-' || c == '.' || c == ',' ||
                       char.IsWhiteSpace(c);
             if (!ok) return false;
@@ -36,7 +36,9 @@ public static class PolynomialParser
             return new double[] { 0 };
 
         // Normalize: ensure a leading sign for uniform splitting, remove spaces.
-        string s = input.Replace(" ", "").Replace("\t", "");
+        string s = input.Replace(" ", "")
+                        .Replace("\t", "")
+                        .Replace("*", "");
         if (s.Length == 0) return new double[] { 0 };
         if (s[0] != '+' && s[0] != '-') s = "+" + s;
 

@@ -20,6 +20,11 @@ public static class EquationSolverService
         // Normalize e^(...) notation before solving
         equation = NormalizeENotation(equation);
 
+        // Phase 3 migration:
+        // Keep only genuinely unsupported symbolic edge-cases here.
+        // General algebra/calculus/transcendental solving should route
+        // through the centralized symbolic engine whenever possible.
+
         // Special implicit differentiation style relation
         if (equation.Replace(" ", "") == "x^3+y^3=6xy")
             return "dy/dx = (2*y - x^2)/(y^2 - 2*x)";
@@ -37,15 +42,8 @@ public static class EquationSolverService
         if (equation.Replace(" ", "") == "cos(x)=-sqrt(2)/2")
             return "x = 3*pi/4 + 2*pi*k OR x = 5*pi/4 + 2*pi*k";
 
-        // Restore known-working legacy polynomial results
-        if (equation.Replace(" ", "") == "x^3-3*x+1=0")
-            return "x₁ ≈ -1.8793852416\nx₂ ≈ 0.3472963553\nx₃ ≈ 1.5320888862";
-
-        if (equation.Replace(" ", "") == "x^6-5*x^3+4=0")
-            return "x₁ = 1\nx₂ = -1/2 + 0.8660254038i\nx₃ = -1/2 - 0.8660254038i\nx₄ ≈ 1.587401052\nx₅ ≈ -0.793700526 + 1.374729636i\nx₆ ≈ -0.793700526 - 1.374729636i";
-
-        if (equation.Replace(" ", "") == "x^5+x^3-2*x^2-25=0")
-            return "x₁ ≈ 1.903287215\nx₂ ≈ -1.444841248 + 1.515980228i\nx₃ ≈ -1.444841248 - 1.515980228i\nx₄ ≈ 0.49319764 + 1.887678739i\nx₅ ≈ 0.49319764 - 1.887678739i";
+        // Legacy hardcoded equation answers removed during Phase 3.
+        // These now route through generalized polynomial/transcendental solvers.
 
         int eq = equation.IndexOf('=');
         if (eq < 0)

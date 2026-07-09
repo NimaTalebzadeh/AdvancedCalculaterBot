@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using AngouriMath;
 using AngouriMath.Extensions;
 using AdvancedCalculaterBot.Services.Equations;
+using AdvancedCalculaterBot.Services.Mathematics.Symbolic;
 
 namespace AdvancedCalculaterBot.Services.Mathematics;
 
@@ -111,14 +112,7 @@ public static class MathOperations
 
             try
             {
-                Entity expr = MathS.FromString(expression);
-
-                for (int i = 0; i < order; i++)
-                    expr = expr.Differentiate(variable).Simplify();
-
-                string cas = expr.Stringize()
-                    .Replace(" ^ ", "^")
-                    .Replace("provided not", " // domain:");
+                string cas = SymbolicEngine.Differentiate(expression, variable, order);
 
                 string label = order == 1
                     ? $"d({expression}, {variable})"
@@ -182,37 +176,7 @@ public static class MathOperations
     {
         try
         {
-            // Taylor Series: f(a) + f'(a)(x-a)/1! + f''(a)(x-a)^2/2! + ... + f^n(a)(x-a)^n/n!
-            string result = "";
-            for (int i = 0; i <= order; i++)
-            {
-                string deriv = expression;
-                for (int j = 0; j < i; j++)
-                    deriv = TrigDerivative(deriv, variable);
-
-                // Evaluate deriv at point
-                double valAtPoint = EvaluateExpressionNumerically(deriv, variable, point, true);
-                
-                // Construct term: (val/i!) * (x-a)^i
-                double fact = Factorial(i);
-                double coeff = valAtPoint / fact;
-                
-                if (Math.Abs(coeff) < ZeroTolerance) continue;
-
-                string term = "";
-                if (Math.Abs(coeff - 1) < ZeroTolerance && i > 0) term = "";
-                else if (Math.Abs(coeff + 1) < ZeroTolerance && i > 0) term = "-";
-                else term = coeff.ToString("G17", System.Globalization.CultureInfo.InvariantCulture) + (i > 0 ? "*" : "");
-
-                if (i > 0)
-                {
-                    string xTerm = (point == 0) ? $"{variable}" : $"({variable}-{point})";
-                    term += (i == 1) ? xTerm : $"{xTerm}^{i}";
-                }
-
-                if (result == "") result = term;
-                else result += (term.StartsWith("-") ? " - " : " + ") + (term.StartsWith("-") ? term.Substring(1) : term);
-            }
+            string result = SymbolicEngine.Taylor(expression, variable, (int)point, order);
             return MathResult.SuccessResult("Taylor", result);
         }
         catch (Exception ex)
@@ -250,14 +214,9 @@ public static class MathOperations
 
             try
             {
-                Entity expr = MathS.FromString(expression);
-                var integral = expr.Integrate(variable).Simplify();
-
-                string cas = integral.Stringize()
-                    .Replace(" ^ ", "^")
-                    .Replace("provided not", " // domain:");
-
-                cas = cas.Replace(" + C", "").Replace("C + ", "").Trim();
+                string cas = SymbolicEngine.Integrate(expression, variable)
+                    .Replace(" + C", "")
+                    .Trim();
                 return MathResult.SuccessResult($"∫ {expression} d{variable}", cas + " + C");
             }
             catch
@@ -543,8 +502,7 @@ public static class MathOperations
 
             try
             {
-                var expr = MathS.FromString(expression);
-                string cas = expr.Simplify().Stringize();
+                string cas = SymbolicEngine.Simplify(expression);
                 return MathResult.SuccessResult($"simplify({expression})", cas);
             }
             catch
@@ -571,7 +529,7 @@ public static class MathOperations
             if (string.IsNullOrWhiteSpace(expression))
                 return MathResult.ErrorResult("Expression cannot be empty.");
 
-            string expanded = ExpandExpression(expression);
+            string expanded = SymbolicEngine.Expand(expression);
             return MathResult.SuccessResult($"expand({expression})", expanded);
         }
         catch (Exception ex)
@@ -592,13 +550,7 @@ public static class MathOperations
             if (string.IsNullOrWhiteSpace(expression))
                 return MathResult.ErrorResult("Expression cannot be empty.");
 
-            if (expression.Replace(" ", "") == "x^6-1")
-                return MathResult.SuccessResult($"factor({expression})", "(x-1)*(x+1)*(x^2+x+1)*(x^2-x+1)");
-
-            if (expression.Replace(" ", "") == "x^4-5*x^2+4")
-                return MathResult.SuccessResult($"factor({expression})", "(x-2)*(x+2)*(x-1)*(x+1)");
-
-            string factored = FactorExpression(expression);
+            string factored = SymbolicEngine.Factor(expression);
             return MathResult.SuccessResult($"factor({expression})", factored);
         }
         catch (Exception ex)
