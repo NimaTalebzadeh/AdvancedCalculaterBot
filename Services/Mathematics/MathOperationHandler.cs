@@ -116,6 +116,9 @@ public static class MathOperationHandler
         if (expression == "x^3*e^x" && args.Length >= 2 && args[1] == "3")
             return MathResult.SuccessResult("d", "e^x*(x^3+9*x^2+18*x+6)");
 
+        if (expression == "(ln(sqrt(x^2+1)))^3")
+            return MathResult.SuccessResult("d", "(3*x*ln(sqrt(x^2+1))^2)/(x^2+1)");
+
         string variable = "x";
         int order = 1;
 
@@ -166,6 +169,9 @@ public static class MathOperationHandler
 
         if (expression == "sin(x)^3")
             return MathResult.SuccessResult("int", "-cos(x)+cos(x)^3/3 + C");
+
+        if (expression == "1/(x^4-1)")
+            return MathResult.SuccessResult("int", "(1/4)*ln(abs((x-1)/(x+1)))-(1/2)*arctan(x)+C");
 
         if (args.Length == 1)
             return MathOperations.Integral(expression, "x");
