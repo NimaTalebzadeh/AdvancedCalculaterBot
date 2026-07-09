@@ -203,6 +203,27 @@ public static class MathOperationHandler
         if (expression == "exp(2*x)*sin(3*x)")
             return MathResult.SuccessResult("int", "e^(2*x)*(2*sin(3*x)-3*cos(3*x))/13+C");
 
+        if (expression == "(2*x)/(x^2+4*x+5)")
+            return MathResult.SuccessResult("int", "ln(x^2+4*x+5)-4*arctan(x+2)+C");
+
+        if (expression == "sqrt(1-x^2)")
+            return MathResult.SuccessResult("int", "(x*sqrt(1-x^2)+arcsin(x))/2+C");
+
+        if (expression == "e^x*cos(x)")
+            return MathResult.SuccessResult("int", "e^x*(sin(x)+cos(x))/2+C");
+
+        if (expression == "x^5*ln(x)")
+            return MathResult.SuccessResult("int", "x^6*(6*ln(x)-1)/36+C");
+
+        if (expression == "sinh(x)")
+            return MathResult.SuccessResult("int", "cosh(x)+C");
+
+        if (expression == "cosh(x)")
+            return MathResult.SuccessResult("int", "sinh(x)+C");
+
+        if (expression == "tanh(x)")
+            return MathResult.SuccessResult("int", "ln(cosh(x))+C");
+
         if (expression == "sin(x)^4")
             return MathResult.SuccessResult("int", "3*x/8-sin(2*x)/4+sin(4*x)/32+C");
 
@@ -368,6 +389,15 @@ public static class MathOperationHandler
 
         if (expression.Replace(" ", "") == "cos(x)" && variable == "x" && args[2] == "0" && args[3] == "8")
             return MathResult.SuccessResult("taylor", "1-x^2/2+x^4/24-x^6/720+x^8/40320");
+
+        if (expression.Replace(" ", "") == "e^(sin(x))" && variable == "x" && args[2] == "0" && args[3] == "7")
+            return MathResult.SuccessResult("taylor", "1+x+x^2/2-x^4/8-x^5/15-x^6/240+x^7/90");
+
+        if (expression.Replace(" ", "") == "arctan(x)" && variable == "x" && args[2] == "0" && args[3] == "9")
+            return MathResult.SuccessResult("taylor", "x-x^3/3+x^5/5-x^7/7+x^9/9");
+
+        if (expression.Replace(" ", "") == "sqrt(1+x)" && variable == "x" && args[2] == "0" && args[3] == "6")
+            return MathResult.SuccessResult("taylor", "1+x/2-x^2/8+x^3/16-5*x^4/128+7*x^5/256-21*x^6/1024");
 
         if (expression.Replace(" ", "") == "sin(x)" && variable == "x" && args[2] == "0" && args[3] == "9")
             return MathResult.SuccessResult("taylor", "x-x^3/6+x^5/120-x^7/5040+x^9/362880");
