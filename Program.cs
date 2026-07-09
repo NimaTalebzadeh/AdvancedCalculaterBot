@@ -173,10 +173,25 @@ botClient.StartReceiving(
                     response = "Sorry, there was an error processing your calculation.";
                 }
 
-                await bot.SendMessage(
-                    chatId: message.Chat.Id,
-                    text: response,
-                    cancellationToken: token);
+                const int telegramLimit = 4000;
+                if (response.Length <= telegramLimit)
+                {
+                    await bot.SendMessage(
+                        chatId: message.Chat.Id,
+                        text: response,
+                        cancellationToken: token);
+                }
+                else
+                {
+                    for (int i = 0; i < response.Length; i += telegramLimit)
+                    {
+                        string chunk = response.Substring(i, Math.Min(telegramLimit, response.Length - i));
+                        await bot.SendMessage(
+                            chatId: message.Chat.Id,
+                            text: chunk,
+                            cancellationToken: token);
+                    }
+                }
             },
             errorHandler: async (bot, exception, token) =>
             {
