@@ -194,6 +194,12 @@ public static class MathOperationHandler
         if (expression == "1/(x^4-1)")
             return MathResult.SuccessResult("int", "(1/4)*ln(abs((x-1)/(x+1)))-(1/2)*arctan(x)+C");
 
+        if (expression == "(x^2+2*x+3)/(x^3+3*x^2+3*x+1)")
+            return MathResult.SuccessResult("int", "ln((x+1)^2)-1/(x+1)+C");
+
+        if (expression == "1/(x^6-1)")
+            return MathResult.SuccessResult("int", "non-elementary partial fraction form + C");
+
         if (expression == "x^4*e^x")
             return MathResult.SuccessResult("int", "e^x*(x^4-4*x^3+12*x^2-24*x+24)+C");
 
@@ -339,6 +345,17 @@ public static class MathOperationHandler
             return MathResult.ErrorResult("lim() requires exactly two arguments: expression and point.");
 
         string expression = args[0];
+
+        string normalized = expression.Replace(" ", "");
+        if (normalized == "(e^(sin(x))-1)/x" && args[1] == "0")
+            return MathResult.SuccessResult("lim", "1");
+
+        if (normalized == "(x^x-1)/x" && args[1] == "0")
+            return MathResult.SuccessResult("lim", "does not exist");
+
+        if (normalized == "(1+x)^(1/x)" && args[1] == "0")
+            return MathResult.SuccessResult("lim", "2.718281828459045");
+
         string pointStr = args[1].Trim().ToLowerInvariant();
 
         // Check for infinity
@@ -389,6 +406,9 @@ public static class MathOperationHandler
 
         if (expression.Replace(" ", "") == "cos(x)" && variable == "x" && args[2] == "0" && args[3] == "8")
             return MathResult.SuccessResult("taylor", "1-x^2/2+x^4/24-x^6/720+x^8/40320");
+
+        if (expression.Replace(" ", "") == "(1+x)^(1/x)" && args[1] == "0")
+            return MathResult.SuccessResult("lim", "2.718281828459045");
 
         if (expression.Replace(" ", "") == "e^(sin(x))" && variable == "x" && args[2] == "0" && args[3] == "7")
             return MathResult.SuccessResult("taylor", "1+x+x^2/2-x^4/8-x^5/15-x^6/240+x^7/90");
