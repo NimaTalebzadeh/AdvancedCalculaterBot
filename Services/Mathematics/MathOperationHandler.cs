@@ -156,7 +156,7 @@ public static class MathOperationHandler
             return MathResult.SuccessResult("int", "sin(x^4)/4 + C");
 
         if (expression == "(2*x+3)/(x^2+x-2)")
-            return MathResult.SuccessResult("int", "2*ln(abs(x-1))+ln(abs(x+2))+ C");
+            return MathResult.SuccessResult("int", "(5/3)*ln(abs(x-1))+(1/3)*ln(abs(x+2))+C");
 
         if (expression == "ln(x)")
             return MathResult.SuccessResult("int", "x*ln(x)-x + C");

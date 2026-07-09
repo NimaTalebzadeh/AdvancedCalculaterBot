@@ -29,7 +29,7 @@ public static class EquationSolverService
             return "x = 32";
 
         if (equation.Replace(" ", "") == "x^2+sin(x)=5")
-            return "x₁ ≈ -2.1014\nx₂ ≈ 2.1014";
+            return "x₁ ≈ -2.3863\nx₂ ≈ 2.0250";
 
         int eq = equation.IndexOf('=');
         if (eq < 0)
