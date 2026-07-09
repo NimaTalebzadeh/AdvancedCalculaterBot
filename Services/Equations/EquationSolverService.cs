@@ -119,8 +119,8 @@ public static class EquationSolverService
             return ComplexFormatter.FormatRoots(quinticRoots);
         }
 
-        if (degree > 5)
-            return "Only up to degree 5 supported";
+        if (degree > 100)
+            return "Only up to degree 100 supported";
 
         Complex[] roots = degree switch
         {
