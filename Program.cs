@@ -119,40 +119,42 @@ botClient.StartReceiving(
                                     continue;
 
                                 // Check if it's a mathematical operation (d, int, lim, simplify, expand, factor)
-                                if (MathOperationHandler.IsMathematicalOperation(expr))
-                                {
-                                    var calculatorService = new CalculatorService(expr);
-                                    var result = calculatorService.Evaluate();
-                                    resultStr = $"{expr} = {result}";
-                                    tracker.Add(expr);
-                                }
-                                else
-                                {
-                                    // Check if it's a system of equations (comma-separated with multiple variables)
-                                    if (SystemOfEquationsSolver.IsSystemOfEquations(expr))
-                                    {
-                                        resultStr = SystemOfEquationsSolver.Solve(expr);
-                                    }
-                                    else
-                                    {
-                                        bool isEquation = expr.Contains('=')
-                                                          && (expr.Contains('x', StringComparison.OrdinalIgnoreCase)
-                                                              || expr.Contains('y', StringComparison.OrdinalIgnoreCase)
-                                                              || expr.Contains('z', StringComparison.OrdinalIgnoreCase));
+                                using var exprTimeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                                exprTimeout.CancelAfter(TimeSpan.FromSeconds(5));
 
-                                        if (isEquation)
-                                        {
-                                            resultStr = EquationSolverService.Solve(expr);
-                                        }
-                                        else
-                                        {
-                                            var calculatorService = new CalculatorService(expr);
-                                            var result = calculatorService.Evaluate();
-                                            resultStr = $"{expr} = {result}";
-                                            tracker.Add(expr);
-                                        }
+                                var evaluationTask = Task.Run(() =>
+                                {
+                                    if (MathOperationHandler.IsMathematicalOperation(expr))
+                                    {
+                                        var calculatorService = new CalculatorService(expr);
+                                        var result = calculatorService.Evaluate();
+                                        tracker.Add(expr);
+                                        return $"{expr} = {result}";
                                     }
-                                }
+
+                                    if (SystemOfEquationsSolver.IsSystemOfEquations(expr))
+                                        return SystemOfEquationsSolver.Solve(expr);
+
+                                    bool isEquation = expr.Contains('=')
+                                                        && (expr.Contains('x', StringComparison.OrdinalIgnoreCase)
+                                                            || expr.Contains('y', StringComparison.OrdinalIgnoreCase)
+                                                            || expr.Contains('z', StringComparison.OrdinalIgnoreCase));
+
+                                    if (isEquation)
+                                        return EquationSolverService.Solve(expr);
+
+                                    var service = new CalculatorService(expr);
+                                    var eval = service.Evaluate();
+                                    tracker.Add(expr);
+                                    return $"{expr} = {eval}";
+                                }, exprTimeout.Token);
+
+                                var completed = await Task.WhenAny(evaluationTask, Task.Delay(Timeout.Infinite, exprTimeout.Token));
+
+                                if (completed == evaluationTask && evaluationTask.IsCompletedSuccessfully)
+                                    resultStr = evaluationTask.Result;
+                                else
+                                    resultStr = $"{expr} = TIMEOUT";
 
                                 results.Add(resultStr);
                             }
