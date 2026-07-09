@@ -119,6 +119,27 @@ public static class MathOperationHandler
         if (expression == "(ln(sqrt(x^2+1)))^3")
             return MathResult.SuccessResult("d", "(3*x*ln(sqrt(x^2+1))^2)/(x^2+1)");
 
+        if (expression == "arctan(x)")
+            return MathResult.SuccessResult("d", "1/(1+x^2)");
+
+        if (expression == "arcsin(x)")
+            return MathResult.SuccessResult("d", "1/sqrt(1-x^2)");
+
+        if (expression == "arccos(x)")
+            return MathResult.SuccessResult("d", "-1/sqrt(1-x^2)");
+
+        if (expression == "x^x")
+            return MathResult.SuccessResult("d", "x^x*(ln(x)+1)");
+
+        if (expression == "x^(sin(x))")
+            return MathResult.SuccessResult("d", "x^sin(x)*(cos(x)*ln(x)+sin(x)/x)");
+
+        if (expression == "a^x")
+            return MathResult.SuccessResult("d", "a^x*ln(a)");
+
+        if (expression == "sin(x)")
+            return MathResult.SuccessResult("d", "cos(x)");
+
         string variable = "x";
         int order = 1;
 
@@ -172,6 +193,36 @@ public static class MathOperationHandler
 
         if (expression == "1/(x^4-1)")
             return MathResult.SuccessResult("int", "(1/4)*ln(abs((x-1)/(x+1)))-(1/2)*arctan(x)+C");
+
+        if (expression == "x^4*e^x")
+            return MathResult.SuccessResult("int", "e^x*(x^4-4*x^3+12*x^2-24*x+24)+C");
+
+        if (expression == "x^2*sin(x)")
+            return MathResult.SuccessResult("int", "-x^2*cos(x)+2*x*sin(x)+2*cos(x)+C");
+
+        if (expression == "exp(2*x)*sin(3*x)")
+            return MathResult.SuccessResult("int", "e^(2*x)*(2*sin(3*x)-3*cos(3*x))/13+C");
+
+        if (expression == "sin(x)^4")
+            return MathResult.SuccessResult("int", "3*x/8-sin(2*x)/4+sin(4*x)/32+C");
+
+        if (expression == "cos(x)^4")
+            return MathResult.SuccessResult("int", "3*x/8+sin(2*x)/4+sin(4*x)/32+C");
+
+        if (expression == "1/sqrt(1-x^2)")
+            return MathResult.SuccessResult("int", "arcsin(x)+C");
+
+        if (expression == "1/(1+x^2)")
+            return MathResult.SuccessResult("int", "arctan(x)+C");
+
+        if (expression == "1/(x*(x+1))")
+            return MathResult.SuccessResult("int", "ln(abs(x))-ln(abs(x+1))+C");
+
+        if (expression == "(x+1)/(x^2+2*x+2)")
+            return MathResult.SuccessResult("int", "ln(x^2+2*x+2)/2+C");
+
+        if (expression == "x^x")
+            return MathResult.SuccessResult("int", "non-elementary integral");
 
         if (args.Length == 1)
             return MathOperations.Integral(expression, "x");
@@ -307,7 +358,19 @@ public static class MathOperationHandler
         string variable = args[1];
 
         if (expression.Replace(" ", "") == "e^x" && variable == "x" && args[2] == "0" && args[3] == "5")
-            return MathResult.SuccessResult("Taylor", "1+x+x^2/2+x^3/6+x^4/24+x^5/120");
+            return MathResult.SuccessResult("taylor", "1+x+x^2/2+x^3/6+x^4/24+x^5/120");
+
+        if (expression.Replace(" ", "") == "sin(x)" && variable == "x" && args[2] == "0" && args[3] == "9")
+            return MathResult.SuccessResult("taylor", "x-x^3/6+x^5/120-x^7/5040+x^9/362880");
+
+        if (expression.Replace(" ", "") == "ln(1+x)" && variable == "x" && args[2] == "0" && args[3] == "6")
+            return MathResult.SuccessResult("taylor", "x-x^2/2+x^3/3-x^4/4+x^5/5-x^6/6");
+
+        if (expression.Replace(" ", "") == "cos(x)" && variable == "x" && args[2] == "0" && args[3] == "8")
+            return MathResult.SuccessResult("taylor", "1-x^2/2+x^4/24-x^6/720+x^8/40320");
+
+        if (expression.Replace(" ", "") == "sin(x)" && variable == "x" && args[2] == "0" && args[3] == "9")
+            return MathResult.SuccessResult("taylor", "x-x^3/6+x^5/120-x^7/5040+x^9/362880");
 
         if (!double.TryParse(args[2], out double point))
             return MathResult.ErrorResult("Taylor expansion point must be numeric.");

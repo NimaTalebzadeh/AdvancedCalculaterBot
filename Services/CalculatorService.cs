@@ -38,6 +38,16 @@ public class CalculatorService
                     throw new ArgumentException(operationResult.Message);
             }
 
+            // Route equations through the original equation solver first.
+            // This preserves the polynomial pipeline (parser + Durand-Kerner)
+            // and falls back to transcendental handling internally.
+            if (expression.Contains('=') && Regex.IsMatch(expression, "[a-zA-Z]"))
+            {
+                string solved = Equations.EquationSolverService.Solve(expression);
+                if (!string.IsNullOrWhiteSpace(solved))
+                    return solved;
+            }
+
             // Fall back to original calculator functionality for standard expressions
             var processed = ProcessFunctions(expression);
             var ncalcExpression = new Expression(processed);
