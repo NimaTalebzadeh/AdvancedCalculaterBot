@@ -1324,8 +1324,12 @@ public static class MathOperations
     /// Handles partial fraction decomposition for rational functions.
     /// Patterns: 1/(x^2-1), 1/(x^2-a^2), a/(x^2-b), etc.
     /// </summary>
-    private static string? TryPartialFractionIntegral(string numerator, string denominator, string variable)
+    private static string? TryPartialFractionIntegral(string numerator, string denominator, string variable, int depth = 0)
     {
+        // Prevent infinite recursive decomposition loops
+        if (depth > 8)
+            return null;
+
         string d = StripOuterParentheses(denominator.Replace(" ", ""));
         string n = StripOuterParentheses(numerator.Replace(" ", ""));
 
@@ -1364,7 +1368,7 @@ public static class MathOperations
         var coeffMatch = Regex.Match(n, @"^(\d+\.?\d*)$");
         if (coeffMatch.Success && double.TryParse(coeffMatch.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double coeff))
         {
-            var innerPf = TryPartialFractionIntegral("1", d, variable);
+            var innerPf = TryPartialFractionIntegral("1", d, variable, depth + 1);
             if (innerPf != null)
             {
                 if (Math.Abs(coeff - 1) < ZeroTolerance) return innerPf;
