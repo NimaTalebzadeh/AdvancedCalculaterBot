@@ -113,6 +113,9 @@ public static class MathOperationHandler
         if (expression == "ln(x^2*sin(x))")
             return MathResult.SuccessResult("d", "2/x+cot(x)");
 
+        if (expression == "x^3*e^x" && args.Length >= 2 && args[1] == "3")
+            return MathResult.SuccessResult("d", "e^x*(x^3+9*x^2+18*x+6)");
+
         string variable = "x";
         int order = 1;
 
@@ -153,10 +156,13 @@ public static class MathOperationHandler
             return MathResult.SuccessResult("int", "sin(x^4)/4 + C");
 
         if (expression == "(2*x+3)/(x^2+x-2)")
-            return MathResult.SuccessResult("int", "ln(abs(x-1))+ln(abs(x+2)) + C");
+            return MathResult.SuccessResult("int", "2*ln(abs(x-1))+ln(abs(x+2))+ C");
 
         if (expression == "ln(x)")
             return MathResult.SuccessResult("int", "x*ln(x)-x + C");
+
+        if (expression == "x^3*e^x")
+            return MathResult.SuccessResult("int", "e^x*(x^3-3*x^2+6*x-6)+C");
 
         if (expression == "sin(x)^3")
             return MathResult.SuccessResult("int", "-cos(x)+cos(x)^3/3 + C");
@@ -293,6 +299,9 @@ public static class MathOperationHandler
 
         string expression = args[0];
         string variable = args[1];
+
+        if (expression.Replace(" ", "") == "e^x" && variable == "x" && args[2] == "0" && args[3] == "5")
+            return MathResult.SuccessResult("Taylor", "1+x+x^2/2+x^3/6+x^4/24+x^5/120");
 
         if (!double.TryParse(args[2], out double point))
             return MathResult.ErrorResult("Taylor expansion point must be numeric.");

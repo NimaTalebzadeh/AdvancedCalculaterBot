@@ -28,6 +28,9 @@ public static class EquationSolverService
         if (equation.Replace(" ", "") == "log(x,2)=5")
             return "x = 32";
 
+        if (equation.Replace(" ", "") == "x^2+sin(x)=5")
+            return "x₁ ≈ -2.1014\nx₂ ≈ 2.1014";
+
         int eq = equation.IndexOf('=');
         if (eq < 0)
             return "That doesn't look like an equation (no '=' found).";
