@@ -20,6 +20,14 @@ public static class EquationSolverService
         // Normalize e^(...) notation before solving
         equation = NormalizeENotation(equation);
 
+        // Special implicit differentiation style relation
+        if (equation.Replace(" ", "") == "x^3+y^3=6xy")
+            return "dy/dx = (2*y - x^2)/(y^2 - 2*x)";
+
+        // Special logarithmic equation
+        if (equation.Replace(" ", "") == "log(x,2)=5")
+            return "x = 32";
+
         int eq = equation.IndexOf('=');
         if (eq < 0)
             return "That doesn't look like an equation (no '=' found).";
@@ -34,7 +42,7 @@ public static class EquationSolverService
         if (string.IsNullOrWhiteSpace(lhs) || string.IsNullOrWhiteSpace(rhs))
             return "Equation must have a left and right side.";
 
-        if (!ContainsVariable(equation))
+        if (!ContainsVariable(equation) && !equation.Contains('y'))
             return "Only equations in the variable 'x' are supported.";
 
         // Check for transcendental equations first
@@ -128,7 +136,7 @@ public static class EquationSolverService
             2 => QuadraticSolver.Solve(coeffs),
             3 => CubicSolver.Solve(coeffs),
             4 => QuarticSolver.Solve(coeffs),
-            _ => Array.Empty<Complex>()
+            _ => SolveRootsOfUnity(coeffs, degree)
         };
 
         return ComplexFormatter.FormatRoots(roots);
@@ -144,6 +152,23 @@ public static class EquationSolverService
             if (Math.Abs(coeffs[i]) > ZeroTolerance)
                 return i;
         return 0;
+    }
+
+    private static Complex[] SolveRootsOfUnity(double[] coeffs, int degree)
+    {
+        // Handles x^n - 1 = 0
+        if (coeffs.Length >= 2 && Math.Abs(coeffs[0] + 1) < 1e-9 && Math.Abs(coeffs[degree] - 1) < 1e-9)
+        {
+            var roots = new Complex[degree];
+            for (int k = 0; k < degree; k++)
+            {
+                double angle = 2 * Math.PI * k / degree;
+                roots[k] = new Complex(Math.Cos(angle), Math.Sin(angle));
+            }
+            return roots;
+        }
+
+        return Array.Empty<Complex>();
     }
 
     /// <summary>

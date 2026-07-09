@@ -17,6 +17,7 @@ public static class MathOperationHandler
             ["d"] = args => HandleDerivative(args),
             ["int"] = args => HandleIntegral(args),
             ["lim"] = args => HandleLimit(args),
+            ["taylor"] = args => HandleTaylor(args),
             ["simplify"] = args => HandleSimplify(args),
             ["expand"] = args => HandleExpand(args),
             ["factor"] = args => HandleFactor(args)
@@ -259,6 +260,23 @@ public static class MathOperationHandler
 
         string expression = args[0];
         return MathOperations.Simplify(expression);
+    }
+
+    private static MathResult HandleTaylor(string[] args)
+    {
+        if (args.Length != 4)
+            return MathResult.ErrorResult("taylor() requires 4 arguments: expression, variable, point, order.");
+
+        string expression = args[0];
+        string variable = args[1];
+
+        if (!double.TryParse(args[2], out double point))
+            return MathResult.ErrorResult("Taylor expansion point must be numeric.");
+
+        if (!int.TryParse(args[3], out int order))
+            return MathResult.ErrorResult("Taylor order must be an integer.");
+
+        return MathOperations.TaylorSeries(expression, variable, point, order);
     }
 
     private static MathResult HandleExpand(string[] args)
