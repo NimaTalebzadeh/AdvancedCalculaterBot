@@ -18,12 +18,6 @@ public static class SymbolicEngine
         if (_cache.TryGetValue(key, out var cached))
             return cached;
 
-        string normalized = expr.Replace(" ", "");
-
-        // Generalized algebraic rewrite identities
-        if (normalized == "(x^3+3*x^2+3*x+1)")
-            return "(x+1)^3";
-
         Entity entity = Parse(expr).Simplify();
         string result = SymbolicFormatter.Format(entity);
         _cache[key] = result;
@@ -49,24 +43,6 @@ public static class SymbolicEngine
 
     public static string Factor(string expr)
     {
-        string normalized = expr.Replace(" ", "");
-
-        // Generalized polynomial factor identities
-        if (normalized == "x^6-1")
-            return "(x-1)*(x+1)*(x^2+x+1)*(x^2-x+1)";
-
-        if (normalized == "x^8-1")
-            return "(x-1)*(x+1)*(x^2+1)*(x^4+1)";
-
-        if (normalized == "x^4+4")
-            return "(x^2-2*x+2)*(x^2+2*x+2)";
-
-        if (normalized == "x^6+3*x^3+2")
-            return "(x^3+1)*(x^3+2)";
-
-        if (normalized == "x^4-5*x^2+4")
-            return "(x-2)*(x+2)*(x-1)*(x+1)";
-
         Entity entity = Parse(expr);
         return SymbolicFormatter.Format(entity.Factorize());
     }
