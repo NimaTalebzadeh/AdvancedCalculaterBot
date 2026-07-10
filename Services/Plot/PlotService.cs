@@ -120,6 +120,8 @@ public static class PlotService
         result = Regex.Replace(result, @"([a-zA-Z][a-zA-Z0-9]*)\s*\(", m =>
         {
             string name = m.Groups[1].Value;
+            // If it's a known function, leave it as is (NCalc will handle it or our EvaluateFunction will).
+            // Otherwise, insert '*' for implicit multiplication.
             if (IsKnownFunction(name))
                 return m.Value;
             return name + "*(";
@@ -146,10 +148,7 @@ public static class PlotService
     {
         try
         {
-            // Convert ^ to ** for NCalc exponentiation
             string ncalcExpr = PrepareForNCalc(expression);
-
-            // Pre-evaluate trig functions with degree-to-radian conversion
             ncalcExpr = PreEvaluateTrig(ncalcExpr, x);
 
             var expr = new Expression(ncalcExpr);
@@ -157,13 +156,48 @@ public static class PlotService
             expr.Parameters["pi"] = Math.PI;
             expr.Parameters["e"] = Math.E;
 
+            // NCalc 6.4 is case-sensitive: "sin" fails, only "Sin" works.
+            // Register a handler so lowercase function names work too.
+            expr.EvaluateFunction += (name, args) =>
+            {
+                double a0() => Convert.ToDouble(args.Parameters.Evaluate(0), CultureInfo.InvariantCulture);
+                double a1() => Convert.ToDouble(args.Parameters.Evaluate(1), CultureInfo.InvariantCulture);
+                switch (name.ToLowerInvariant())
+                {
+                    // Trig in degrees (matches CalculatorService convention)
+                    case "sin":  args.Result = Math.Sin(a0() * Math.PI / 180.0); break;
+                    case "cos":  args.Result = Math.Cos(a0() * Math.PI / 180.0); break;
+                    case "tan":  args.Result = Math.Tan(a0() * Math.PI / 180.0); break;
+                    // Inverse trig — return in degrees to stay consistent
+                    case "asin": args.Result = Math.Asin(a0()) * 180.0 / Math.PI; break;
+                    case "acos": args.Result = Math.Acos(a0()) * 180.0 / Math.PI; break;
+                    case "atan": args.Result = Math.Atan(a0()) * 180.0 / Math.PI; break;
+                    // Hyperbolic
+                    case "sinh": args.Result = Math.Sinh(a0()); break;
+                    case "cosh": args.Result = Math.Cosh(a0()); break;
+                    case "tanh": args.Result = Math.Tanh(a0()); break;
+                    // Algebraic
+                    case "abs":    args.Result = Math.Abs(a0()); break;
+                    case "sqrt":   args.Result = Math.Sqrt(a0()); break;
+                    case "ln":     args.Result = Math.Log(a0()); break;
+                    case "log":    args.Result = Math.Log10(a0()); break;
+                    case "log10":  args.Result = Math.Log10(a0()); break;
+                    case "log2":   args.Result = Math.Log2(a0()); break;
+                    case "exp":    args.Result = Math.Exp(a0()); break;
+                    case "floor":  args.Result = Math.Floor(a0()); break;
+                    case "ceil":   args.Result = Math.Ceiling(a0()); break;
+                    case "round":  args.Result = Math.Round(a0()); break;
+                    case "sign":   args.Result = Math.Sign(a0()); break;
+                    case "pow":    args.Result = Math.Pow(a0(), a1()); break;
+                    case "min":    args.Result = Math.Min(a0(), a1()); break;
+                    case "max":    args.Result = Math.Max(a0(), a1()); break;
+                }
+            };
+
             var result = expr.Evaluate();
             return Convert.ToDouble(result, CultureInfo.InvariantCulture);
         }
-        catch
-        {
-            return double.NaN;
-        }
+        catch { return double.NaN; }
     }
 
     /// <summary>
