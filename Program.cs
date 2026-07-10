@@ -6,6 +6,7 @@ using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using AdvancedCalculaterBot.Services;
 using AdvancedCalculaterBot.Services.Equations;
+using AdvancedCalculaterBot.Services.Plot;
 using AdvancedCalculaterBot.State;
 using AdvancedCalculaterBot.Services.Mathematics;
 
@@ -31,6 +32,7 @@ builder.Services.AddSingleton<ITelegramBotClient>(sp =>
 });
 
 builder.Services.AddSingleton<ComplexityTracker>();
+builder.Services.AddSingleton<PlotConversationManager>();
 
 var app = builder.Build();
 
@@ -38,6 +40,7 @@ app.UseSerilogRequestLogging();
 
 var botClient = app.Services.GetRequiredService<ITelegramBotClient>();
 var tracker = app.Services.GetRequiredService<ComplexityTracker>();
+var plotManager = app.Services.GetRequiredService<PlotConversationManager>();
 var adminIds = (Environment.GetEnvironmentVariable("ADMIN_IDS") ?? "")
     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
     .Select(id => long.TryParse(id, out var parsed) ? parsed : 0)
@@ -63,6 +66,131 @@ botClient.StartReceiving(
                 try
                 {
                     string expression = text.Trim();
+
+                    // ── Plot conversation state machine ──
+                    long chatId = message.Chat.Id;
+                    var plotState = plotManager.GetState(chatId);
+
+                    if (plotState != null)
+                    {
+                        // User is mid-conversation for a plot
+                        string param = text.Trim();
+
+                        // Allow canceling with /cancel
+                        if (param.Equals("/cancel", StringComparison.OrdinalIgnoreCase))
+                        {
+                            plotManager.RemoveState(chatId);
+                            await bot.SendMessage(chatId: chatId, text: "Plot cancelled.", cancellationToken: token);
+                            return;
+                        }
+
+                        try
+                        {
+                            switch (plotState.Phase)
+                            {
+                                case PlotPhase.AskStart:
+                                    if (!double.TryParse(param, System.Globalization.NumberStyles.Any,
+                                            System.Globalization.CultureInfo.InvariantCulture, out double startVal))
+                                    {
+                                        await bot.SendMessage(chatId: chatId, text: "Invalid number. Please enter a numeric start value (e.g. -10):", cancellationToken: token);
+                                        return;
+                                    }
+                                    plotState.Start = startVal;
+                                    plotState.Phase = PlotPhase.AskEnd;
+                                    plotManager.SetState(chatId, plotState);
+                                    await bot.SendMessage(chatId: chatId, text: "Enter end value:", cancellationToken: token);
+                                    return;
+
+                                case PlotPhase.AskEnd:
+                                    if (!double.TryParse(param, System.Globalization.NumberStyles.Any,
+                                            System.Globalization.CultureInfo.InvariantCulture, out double endVal))
+                                    {
+                                        await bot.SendMessage(chatId: chatId, text: "Invalid number. Please enter a numeric end value (e.g. 10):", cancellationToken: token);
+                                        return;
+                                    }
+                                    plotState.End = endVal;
+                                    plotState.Phase = PlotPhase.AskStep;
+                                    plotManager.SetState(chatId, plotState);
+                                    await bot.SendMessage(chatId: chatId, text: "Enter step value (e.g. 0.01):", cancellationToken: token);
+                                    return;
+
+                                case PlotPhase.AskStep:
+                                    if (!double.TryParse(param, System.Globalization.NumberStyles.Any,
+                                            System.Globalization.CultureInfo.InvariantCulture, out double stepVal) || stepVal <= 0)
+                                    {
+                                        await bot.SendMessage(chatId: chatId, text: "Invalid step. Please enter a positive number (e.g. 0.01):", cancellationToken: token);
+                                        return;
+                                    }
+                                    plotState.Step = stepVal;
+                                    plotManager.RemoveState(chatId);
+
+                                    // Generate the plot
+                                    try
+                                    {
+                                        byte[] imageBytes = PlotService.GeneratePlot(
+                                            plotState.Expression,
+                                            plotState.Start!.Value,
+                                            plotState.End!.Value,
+                                            plotState.Step.Value);
+
+                                        using var stream = new MemoryStream(imageBytes);
+                                        var photo = new Telegram.Bot.Types.InputFileStream(stream, "plot.png");
+                                        await bot.SendPhoto(
+                                            chatId: chatId,
+                                            photo: photo,
+                                            caption: $"y = {plotState.Expression}\nRange: [{plotState.Start}, {plotState.End}], Step: {plotState.Step}",
+                                            cancellationToken: token);
+                                    }
+                                    catch (Exception plotEx)
+                                    {
+                                        await bot.SendMessage(chatId: chatId,
+                                            text: $"Error generating plot: {plotEx.Message}",
+                                            cancellationToken: token);
+                                    }
+                                    return;
+                            }
+                        }
+                        catch (Exception)
+                        {
+                            plotManager.RemoveState(chatId);
+                            await bot.SendMessage(chatId: chatId,
+                                text: "Plot cancelled due to an error. Try again with plot(expression).",
+                                cancellationToken: token);
+                            return;
+                        }
+                    }
+
+                    // ── Detect new plot() command ──
+                    string exprForPlot = expression;
+                    if (exprForPlot.StartsWith("/calc", StringComparison.OrdinalIgnoreCase))
+                        exprForPlot = exprForPlot.Substring(5).Trim();
+
+                    var plotMatch = System.Text.RegularExpressions.Regex.Match(
+                        exprForPlot, @"^plot\s*\((.+)\)$",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                    if (plotMatch.Success)
+                    {
+                        string plotExpr = plotMatch.Groups[1].Value.Trim();
+                        if (string.IsNullOrWhiteSpace(plotExpr))
+                        {
+                            await bot.SendMessage(chatId: chatId,
+                                text: "Please provide an expression. Example: plot(x^2*sin(x))",
+                                cancellationToken: token);
+                            return;
+                        }
+
+                        var newState = new PlotState
+                        {
+                            Expression = plotExpr,
+                            Phase = PlotPhase.AskStart
+                        };
+                        plotManager.SetState(chatId, newState);
+                        await bot.SendMessage(chatId: chatId,
+                            text: $"Plotting: y = {plotExpr}\nEnter start value (e.g. -10):",
+                            cancellationToken: token);
+                        return;
+                    }
 
                     if (expression.Equals("/top", StringComparison.OrdinalIgnoreCase))
                     {
