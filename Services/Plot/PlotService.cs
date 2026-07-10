@@ -56,10 +56,26 @@ public static class PlotService
         scatter.LineWidth = 2;
         scatter.MarkerSize = 0; // no markers, just the line
 
-        // Style axes for dark background
-        plt.Axes.Color(Colors.White);
-        plt.Axes.FrameColor(Colors.White);
-        plt.Axes.DefaultGrid.MajorLineColor = Colors.DarkGray;
+        // Style axes — thin, semi-transparent white lines and labels
+        var faint     = Color.FromARGB(0x66FFFFFF);  // ~40% opacity white
+        var gridColor = Color.FromARGB(0x33FFFFFF);  // ~20% opacity white
+
+        plt.Axes.Color(faint);
+        plt.Axes.FrameColor(faint);
+        plt.Axes.FrameWidth(0.5f);
+
+        // Tick labels visible in semi-transparent white
+        foreach (var axis in new IAxis[] { plt.Axes.Bottom, plt.Axes.Top, plt.Axes.Left, plt.Axes.Right })
+        {
+            if (axis == null) continue;
+            axis.TickLabelStyle.ForeColor = faint;
+            axis.Label.ForeColor = faint;
+        }
+
+        plt.Axes.DefaultGrid.MajorLineColor = gridColor;
+        plt.Axes.DefaultGrid.MajorLineWidth = 0.4f;
+        plt.Axes.DefaultGrid.MinorLineColor = Color.FromARGB(0x1AFFFFFF); // ~10% opacity
+        plt.Axes.DefaultGrid.MinorLineWidth = 0.2f;
 
         plt.Title($"y = {expression}");
         plt.XLabel("x");
