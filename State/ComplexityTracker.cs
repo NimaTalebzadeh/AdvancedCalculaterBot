@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace AdvancedCalculaterBot.State;
+namespace AdvancedCalculatorBot.State;
 
 public class ComplexityTracker
 {

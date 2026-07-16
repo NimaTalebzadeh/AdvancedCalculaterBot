@@ -2,7 +2,7 @@ using System;
 using System.Linq;
 using System.Text.RegularExpressions;
 
-namespace AdvancedCalculaterBot.State;
+namespace AdvancedCalculatorBot.State;
 
 public static class ComplexityCalculator
 {

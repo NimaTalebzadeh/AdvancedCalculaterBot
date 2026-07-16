@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace AdvancedCalculaterBot.Services.Mathematics;
+namespace AdvancedCalculatorBot.Services.Mathematics;
 
 /// <summary>
 /// Parses and validates mathematical expressions with comprehensive error checking.

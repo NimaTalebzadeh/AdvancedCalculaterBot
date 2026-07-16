@@ -1,4 +1,4 @@
-namespace AdvancedCalculaterBot.Services.Equations.TranscendentalSolving;
+namespace AdvancedCalculatorBot.Services.Equations.TranscendentalSolving;
 
 /// <summary>
 /// Newton-Raphson refinement. Uses symbolic derivative if available, otherwise central differences.

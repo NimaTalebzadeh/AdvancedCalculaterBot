@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace AdvancedCalculaterBot.Services.Equations.TranscendentalSolving;
+namespace AdvancedCalculatorBot.Services.Equations.TranscendentalSolving;
 
 /// <summary>
 /// Main entry point for solving transcendental equations.

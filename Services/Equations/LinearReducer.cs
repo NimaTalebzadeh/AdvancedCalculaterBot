@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text;
 using NCalc;
 
-namespace AdvancedCalculaterBot.Services.Equations;
+namespace AdvancedCalculatorBot.Services.Equations;
 
 /// <summary>
 /// Reduces a structured linear equation (one that may contain parentheses,

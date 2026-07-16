@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace AdvancedCalculaterBot.Services.Equations;
+namespace AdvancedCalculatorBot.Services.Equations;
 
 /// <summary>
 /// Solves quintic (5th-degree) polynomial equations using the Durand-Kerner method.

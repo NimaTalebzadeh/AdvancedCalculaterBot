@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace AdvancedCalculaterBot.Services.Mathematics;
+namespace AdvancedCalculatorBot.Services.Mathematics;
 
 /// <summary>
 /// Handles mathematical operation commands like d(), int(), lim(), simplify(), expand(), factor().
@@ -56,16 +56,21 @@ public static class MathOperationHandler
     }
 
     /// <summary>
-    /// Checks if the string represents a mathematical operation (function call).
+    /// Checks if the string represents a mathematical operation command
+    /// (d, int, lim, taylor, simplify, expand, factor — not regular math functions).
     /// </summary>
     public static bool IsMathematicalOperation(string input)
     {
         if (string.IsNullOrWhiteSpace(input))
             return false;
 
-        // Match function calls like solve(x^2-4=0) or d(x^2)
+        // Only match actual operation commands, not regular math functions like sin/cos
         var match = Regex.Match(input.Trim(), @"^([a-zA-Z]+)\s*\(.*\)$");
-        return match.Success;
+        if (!match.Success)
+            return false;
+
+        string name = match.Groups[1].Value.ToLowerInvariant();
+        return _operationHandlers.ContainsKey(name);
     }
 
     private static string[] SplitArguments(string argsString)

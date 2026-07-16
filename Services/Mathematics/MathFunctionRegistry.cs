@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace AdvancedCalculaterBot.Services.Mathematics;
+namespace AdvancedCalculatorBot.Services.Mathematics;
 
 /// <summary>
 /// Registry for mathematical functions that can be extended with new functions

@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 using NCalc;
 using ScottPlot;
 
-namespace AdvancedCalculaterBot.Services.Plot;
+namespace AdvancedCalculatorBot.Services.Plot;
 
 /// <summary>
 /// Generates function plots as PNG images using ScottPlot.
@@ -32,26 +32,37 @@ public static class PlotService
         if (pointCount > 100_000)
             pointCount = 100_000;
 
-        var xs = new double[pointCount];
-        var ys = new double[pointCount];
+        var xs = new List<double>();
+        var ys = new List<double>();
 
+        // First pass: evaluate all points and collect valid ones
         for (int i = 0; i < pointCount; i++)
         {
             double x = start + i * step;
             if (x > end) x = end;
-            xs[i] = x;
-            ys[i] = EvaluateExpression(expression, x);
+
+            double y = EvaluateExpression(expression, x);
+
+            // Skip NaN and Inf — don't plot them
+            if (double.IsNaN(y) || double.IsInfinity(y))
+                continue;
+
+            xs.Add(x);
+            ys.Add(y);
         }
 
+        if (xs.Count == 0)
+            throw new ArgumentException("No valid points to plot. Check your expression or range.");
+
         // Create plot
-        var plt = new ScottPlot.Plot();
+        using var plt = new ScottPlot.Plot();
 
         // Black background
         plt.FigureBackground.Color = Colors.Black;
         plt.DataBackground.Color = Colors.Black;
 
         // Add the line with red color
-        var scatter = plt.Add.Scatter(xs, ys);
+        var scatter = plt.Add.Scatter(xs.ToArray(), ys.ToArray());
         scatter.LineColor = Colors.Red;
         scatter.LineWidth = 2;
         scatter.MarkerSize = 0; // no markers, just the line
@@ -59,6 +70,42 @@ public static class PlotService
         // Style axes — thin, semi-transparent white lines and labels
         var faint     = Color.FromARGB(0x66FFFFFF);  // ~40% opacity white
         var gridColor = Color.FromARGB(0x33FFFFFF);  // ~20% opacity white
+        var zeroColor = Color.FromARGB(0x55FF6600);  // ~33% orange for zero lines
+
+        // ── Auto-scale axes with margins ──
+        double yMin = ys.Min();
+        double yMax = ys.Max();
+        double yRange = yMax - yMin;
+
+        // Add 15% margin above and below, minimum 0.5 total range
+        if (yRange < 0.5) yRange = 0.5;
+        double yPad = yRange * 0.15;
+        double yLow = yMin - yPad;
+        double yHigh = yMax + yPad;
+
+        // Round to nice numbers
+        double[] yLimits = RoundLimits(yLow, yHigh);
+        double[] xLimits = RoundLimits(start, end);
+
+        plt.Axes.SetLimits(xLimits[0], xLimits[1], yLimits[0], yLimits[1]);
+
+        // ── Zero-crossing lines ──
+        // Horizontal zero line
+        if (yLimits[0] < 0 && yLimits[1] > 0)
+        {
+            var hLine = plt.Add.HorizontalLine(0);
+            hLine.LineColor = zeroColor;
+            hLine.LineWidth = 0.8f;
+            hLine.LinePattern = LinePattern.Dashed;
+        }
+        // Vertical zero line
+        if (xLimits[0] < 0 && xLimits[1] > 0)
+        {
+            var vLine = plt.Add.VerticalLine(0);
+            vLine.LineColor = zeroColor;
+            vLine.LineWidth = 0.8f;
+            vLine.LinePattern = LinePattern.Dashed;
+        }
 
         plt.Axes.Color(faint);
         plt.Axes.FrameColor(faint);
@@ -67,14 +114,17 @@ public static class PlotService
         // Tick labels visible in semi-transparent white
         foreach (var axis in new IAxis[] { plt.Axes.Bottom, plt.Axes.Top, plt.Axes.Left, plt.Axes.Right })
         {
-            if (axis == null) continue;
             axis.TickLabelStyle.ForeColor = faint;
             axis.Label.ForeColor = faint;
         }
 
+        // Adjust tick spacing for readability
+        plt.Axes.Bottom.TickGenerator = new ScottPlot.TickGenerators.NumericAutomatic();
+        plt.Axes.Left.TickGenerator = new ScottPlot.TickGenerators.NumericAutomatic();
+
         plt.Axes.DefaultGrid.MajorLineColor = gridColor;
         plt.Axes.DefaultGrid.MajorLineWidth = 0.4f;
-        plt.Axes.DefaultGrid.MinorLineColor = Color.FromARGB(0x1AFFFFFF); // ~10% opacity
+        plt.Axes.DefaultGrid.MinorLineColor = Color.FromARGB(0x1AFFFFFF);
         plt.Axes.DefaultGrid.MinorLineWidth = 0.2f;
 
         plt.Title($"y = {expression}");
@@ -99,10 +149,42 @@ public static class PlotService
     }
 
     /// <summary>
+    /// Rounds limits outward to nice tick-friendly numbers.
+    /// </summary>
+    private static double[] RoundLimits(double low, double high)
+    {
+        double range = high - low;
+        if (range < 0.001) range = 0.001;
+
+        // Determine order of magnitude
+        double magnitude = Math.Pow(10, Math.Floor(Math.Log10(range)));
+        double niceStep = magnitude;
+
+        // Choose a nice step: 1, 2, or 5 times magnitude
+        double normalized = range / magnitude;
+        if (normalized < 1.5) niceStep = magnitude * 0.2;
+        else if (normalized < 3) niceStep = magnitude * 0.5;
+        else if (normalized < 7) niceStep = magnitude * 1;
+        else niceStep = magnitude * 2;
+
+        double newLow = Math.Floor(low / niceStep) * niceStep;
+        double newHigh = Math.Ceiling(high / niceStep) * niceStep;
+
+        // Ensure at least some range
+        if (Math.Abs(newHigh - newLow) < niceStep * 2)
+        {
+            double mid = (newLow + newHigh) / 2;
+            newLow = mid - niceStep * 2;
+            newHigh = mid + niceStep * 2;
+        }
+
+        return new[] { newLow, newHigh };
+    }
+
+    /// <summary>
     /// Prepares a user expression for NCalc evaluation:
     /// - Converts ^ to ** for exponentiation
     /// - Inserts implicit multiplication (2x -> 2*x)
-    /// - Pre-evaluates trig functions with degree-to-radian conversion
     /// </summary>
     private static string PrepareForNCalc(string expression)
     {
@@ -120,8 +202,6 @@ public static class PlotService
         result = Regex.Replace(result, @"([a-zA-Z][a-zA-Z0-9]*)\s*\(", m =>
         {
             string name = m.Groups[1].Value;
-            // If it's a known function, leave it as is (NCalc will handle it or our EvaluateFunction will).
-            // Otherwise, insert '*' for implicit multiplication.
             if (IsKnownFunction(name))
                 return m.Value;
             return name + "*(";
@@ -149,7 +229,6 @@ public static class PlotService
         try
         {
             string ncalcExpr = PrepareForNCalc(expression);
-            ncalcExpr = PreEvaluateTrig(ncalcExpr, x);
 
             var expr = new Expression(ncalcExpr);
             expr.Parameters["x"] = x;
@@ -198,51 +277,5 @@ public static class PlotService
             return Convert.ToDouble(result, CultureInfo.InvariantCulture);
         }
         catch { return double.NaN; }
-    }
-
-    /// <summary>
-    /// Replaces sin/cos/tan calls with their computed values for the given x,
-    /// converting from degrees to radians (matching the bot's convention).
-    /// </summary>
-    private static string PreEvaluateTrig(string expression, double x)
-    {
-        string result = expression;
-
-        // Process trig functions: sin(...), cos(...), tan(...)
-        string[] trigFunctions = { "tan", "sin", "cos" };
-        foreach (var func in trigFunctions)
-        {
-            int safety = 0;
-            while (Regex.IsMatch(result, $@"{func}\(", RegexOptions.IgnoreCase) && safety < 20)
-            {
-                safety++;
-                result = Regex.Replace(result, $@"{func}\(([^()]*)\)", m =>
-                {
-                    try
-                    {
-                        string inner = m.Groups[1].Value;
-                        var innerExpr = new Expression(inner);
-                        innerExpr.Parameters["x"] = x;
-                        innerExpr.Parameters["pi"] = Math.PI;
-                        innerExpr.Parameters["e"] = Math.E;
-                        double val = Convert.ToDouble(innerExpr.Evaluate(), CultureInfo.InvariantCulture);
-                        double rad = val * Math.PI / 180.0;
-                        return func.ToLowerInvariant() switch
-                        {
-                            "sin" => Math.Sin(rad).ToString("R", CultureInfo.InvariantCulture),
-                            "cos" => Math.Cos(rad).ToString("R", CultureInfo.InvariantCulture),
-                            "tan" => Math.Tan(rad).ToString("R", CultureInfo.InvariantCulture),
-                            _ => m.Value
-                        };
-                    }
-                    catch
-                    {
-                        return m.Value;
-                    }
-                }, RegexOptions.IgnoreCase);
-            }
-        }
-
-        return result;
     }
 }

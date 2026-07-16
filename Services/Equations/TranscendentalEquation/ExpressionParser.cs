@@ -1,4 +1,4 @@
-namespace AdvancedCalculaterBot.Services.Equations.TranscendentalSolving;
+namespace AdvancedCalculatorBot.Services.Equations.TranscendentalSolving;
 
 /// <summary>
 /// Recursive-descent parser: string → ExprNode AST.

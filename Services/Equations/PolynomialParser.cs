@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 
-namespace AdvancedCalculaterBot.Services.Equations;
+namespace AdvancedCalculatorBot.Services.Equations;
 
 /// <summary>
 /// Parses a single-variable (x) polynomial from text into a coefficient array,

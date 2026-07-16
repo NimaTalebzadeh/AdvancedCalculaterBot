@@ -1,4 +1,4 @@
-namespace AdvancedCalculaterBot.Services.Equations.TranscendentalSolving;
+namespace AdvancedCalculatorBot.Services.Equations.TranscendentalSolving;
 
 /// <summary>
 /// Scans an interval [lo, hi] for sign changes in f(x).

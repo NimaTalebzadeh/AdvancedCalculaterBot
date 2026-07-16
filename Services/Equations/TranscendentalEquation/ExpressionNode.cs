@@ -1,4 +1,4 @@
-namespace AdvancedCalculaterBot.Services.Equations.TranscendentalSolving;
+namespace AdvancedCalculatorBot.Services.Equations.TranscendentalSolving;
 
 /// <summary>
 /// Abstract base for all expression tree nodes.

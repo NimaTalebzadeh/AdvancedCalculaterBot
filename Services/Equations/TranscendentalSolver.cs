@@ -3,7 +3,7 @@ using System.Globalization;
 using System.Numerics;
 using NCalc;
 
-namespace AdvancedCalculaterBot.Services.Equations
+namespace AdvancedCalculatorBot.Services.Equations
 {
     /// <summary>
     /// Solves transcendental equations using the Newton-Raphson method.

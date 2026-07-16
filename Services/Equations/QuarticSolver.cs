@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace AdvancedCalculaterBot.Services.Equations;
+namespace AdvancedCalculatorBot.Services.Equations;
 
 /// <summary>
 /// Solves ax^4 + bx^3 + cx^2 + dx + e = 0 given coefficients [e, d, c, b, a]

@@ -1,7 +1,7 @@
 using AngouriMath;
 using AngouriMath.Extensions;
 
-namespace AdvancedCalculaterBot.Services.Mathematics.Symbolic;
+namespace AdvancedCalculatorBot.Services.Mathematics.Symbolic;
 
 public static class SymbolicFormatter
 {

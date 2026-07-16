@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace AdvancedCalculaterBot.Services.Equations;
+namespace AdvancedCalculatorBot.Services.Equations;
 
 /// <summary>
 /// Solves ax^3 + bx^2 + cx + d = 0 given coefficients [d, c, b, a] (low→high)

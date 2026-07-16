@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace AdvancedCalculaterBot.Services.Equations;
+namespace AdvancedCalculatorBot.Services.Equations;
 
 /// <summary>Solves ax + b = 0 given coefficients [b, a]. Returns a single root.</summary>
 public static class LinearSolver

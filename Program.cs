@@ -1,14 +1,13 @@
-using System.Text.Json;
 using Serilog;
 using Telegram.Bot;
 using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
-using AdvancedCalculaterBot.Services;
-using AdvancedCalculaterBot.Services.Equations;
-using AdvancedCalculaterBot.Services.Plot;
-using AdvancedCalculaterBot.State;
-using AdvancedCalculaterBot.Services.Mathematics;
+using AdvancedCalculatorBot.Services;
+using AdvancedCalculatorBot.Services.Equations;
+using AdvancedCalculatorBot.Services.Plot;
+using AdvancedCalculatorBot.State;
+using AdvancedCalculatorBot.Services.Mathematics;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -51,7 +50,7 @@ var cts = new CancellationTokenSource();
 
 var receiverOptions = new ReceiverOptions
 {
-    AllowedUpdates = Array.Empty<UpdateType>()
+    AllowedUpdates = [UpdateType.Message]
 };
 
 botClient.StartReceiving(
@@ -66,6 +65,39 @@ botClient.StartReceiving(
                 try
                 {
                     string expression = text.Trim();
+
+                    // ── /start command ──
+                    if (expression.Equals("/start", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await bot.SendMessage(chatId: message.Chat.Id,
+                            text: "🧮 Advanced Calculator Bot\n\nSolves equations & mathematical expressions.\nType /help to see available commands.",
+                            cancellationToken: token);
+                        return;
+                    }
+
+                    // ── /help command ──
+                    if (expression.Equals("/help", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await bot.SendMessage(chatId: message.Chat.Id,
+                            text: "Commands:\n\n"
+                                + "/calc <expr> — Evaluate an expression\n"
+                                + "Example: /calc 2 + 2 * (3 + 4)\n\n"
+                                + "Equation solving — Type the equation directly\n"
+                                + "Example: x^2 - 4 = 0\n\n"
+                                + "📊 plot(expr) — Plot a function graph\n"
+                                + "Example: plot(x^2*sin(x))\n\n"
+                                + "Math operations:\n"
+                                + "d(expr) — Derivative\n"
+                                + "int(expr) — Integral\n"
+                                + "lim(expr, point) — Limit\n"
+                                + "simplify(expr) — Simplify\n"
+                                + "expand(expr) — Expand\n"
+                                + "factor(expr) — Factorize\n"
+                                + "taylor(expr, var, pt, n) — Taylor series\n\n"
+                                + "⚙️ /top — Top complex expressions (admin only)",
+                            cancellationToken: token);
+                        return;
+                    }
 
                     // ── Plot conversation state machine ──
                     long chatId = message.Chat.Id;

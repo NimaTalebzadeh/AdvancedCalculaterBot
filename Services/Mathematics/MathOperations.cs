@@ -5,10 +5,10 @@ using System.Numerics;
 using System.Text.RegularExpressions;
 using AngouriMath;
 using AngouriMath.Extensions;
-using AdvancedCalculaterBot.Services.Equations;
-using AdvancedCalculaterBot.Services.Mathematics.Symbolic;
+using AdvancedCalculatorBot.Services.Equations;
+using AdvancedCalculatorBot.Services.Mathematics.Symbolic;
 
-namespace AdvancedCalculaterBot.Services.Mathematics;
+namespace AdvancedCalculatorBot.Services.Mathematics;
 
 /// <summary>
 /// Handles all mathematical operations: solve, derivative, integral, limit, simplify, expand, factor.
@@ -478,6 +478,22 @@ public static class MathOperations
 
             if (!ContainsVariable(expression))
                 return MathResult.ErrorResult($"Expression must contain variable '{variable}'.");
+
+            // Try symbolic limit first via AngouriMath/SymPy
+            try
+            {
+                string symbolicResult = SymbolicEngine.Limit(expression, variable, point);
+                if (!string.IsNullOrWhiteSpace(symbolicResult) && 
+                    !symbolicResult.Contains("nan", StringComparison.OrdinalIgnoreCase) &&
+                    !symbolicResult.Contains("NaN"))
+                {
+                    return MathResult.SuccessResult($"lim_{{x→{point}}} {expression}", symbolicResult);
+                }
+            }
+            catch
+            {
+                // Symbolic failed, fall through to numeric
+            }
 
             double result = ComputeLimit(expression, variable, point);
             return MathResult.SuccessResult($"lim_{{x→{point}}} {expression}", result.ToString("G17", System.Globalization.CultureInfo.InvariantCulture));
@@ -1556,7 +1572,10 @@ public static class MathOperations
         // Try polynomial
         var terms = ParsePolynomialTerms(clean);
         if (terms.Count == 0)
-            return 0;
+        {
+            // Fall back to numerical integration (Simpson's rule)
+            return NumericalIntegrate(expression, variable, lower, upper);
+        }
 
         double result2 = 0;
         foreach (var term in terms)
@@ -1567,6 +1586,30 @@ public static class MathOperations
         }
 
         return result2;
+    }
+
+    /// <summary>
+    /// Adaptive Simpson's rule numerical integration.
+    /// </summary>
+    private static double NumericalIntegrate(string expression, string variable, double a, double b, int n = 1000)
+    {
+        if (n % 2 != 0) n++; // Simpson requires even number of intervals
+        
+        double h = (b - a) / n;
+        double sum = EvaluateExpressionNumerically(expression, variable, a, useRadians: true)
+                   + EvaluateExpressionNumerically(expression, variable, b, useRadians: true);
+        
+        for (int i = 1; i < n; i++)
+        {
+            double x = a + i * h;
+            double val = EvaluateExpressionNumerically(expression, variable, x, useRadians: true);
+            if (i % 2 == 0)
+                sum += 2.0 * val;
+            else
+                sum += 4.0 * val;
+        }
+        
+        return sum * h / 3.0;
     }
 
     private static double ComputeLimit(string expression, string variable, double point)

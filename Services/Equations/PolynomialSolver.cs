@@ -1,7 +1,7 @@
 using System;
 using System.Numerics;
 
-namespace AdvancedCalculaterBot.Services.Equations;
+namespace AdvancedCalculatorBot.Services.Equations;
 
 /// <summary>
 /// General polynomial root solver using the Durand-Kerner method.

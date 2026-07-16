@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace AdvancedCalculaterBot.Services.Mathematics;
+namespace AdvancedCalculatorBot.Services.Mathematics;
 
 /// <summary>
 /// Represents a result from mathematical operations with consistent formatting.

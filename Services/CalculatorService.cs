@@ -1,9 +1,9 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
-using AdvancedCalculaterBot.Services.Mathematics;
+using AdvancedCalculatorBot.Services.Mathematics;
 using NCalc;
 
-namespace AdvancedCalculaterBot.Services;
+namespace AdvancedCalculatorBot.Services;
 
 /// <summary>
 /// Calculator service that integrates the new mathematical expression engine

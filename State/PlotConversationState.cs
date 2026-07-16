@@ -1,4 +1,4 @@
-namespace AdvancedCalculaterBot.State;
+namespace AdvancedCalculatorBot.State;
 
 /// <summary>
 /// Tracks the multi-step plot conversation state per chat.

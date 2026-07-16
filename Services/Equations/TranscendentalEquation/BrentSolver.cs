@@ -1,4 +1,4 @@
-namespace AdvancedCalculaterBot.Services.Equations.TranscendentalSolving;
+namespace AdvancedCalculatorBot.Services.Equations.TranscendentalSolving;
 
 /// <summary>
 /// Hybrid root finder: bisection (guaranteed convergence) + Newton-Raphson polish.
