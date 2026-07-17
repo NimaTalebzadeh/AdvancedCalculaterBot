@@ -32,6 +32,7 @@ builder.Services.AddSingleton<ITelegramBotClient>(sp =>
 
 builder.Services.AddSingleton<ComplexityTracker>();
 builder.Services.AddSingleton<PlotConversationManager>();
+builder.Services.AddSingleton<IntegralBoundsManager>();
 
 var app = builder.Build();
 
@@ -40,6 +41,7 @@ app.UseSerilogRequestLogging();
 var botClient = app.Services.GetRequiredService<ITelegramBotClient>();
 var tracker = app.Services.GetRequiredService<ComplexityTracker>();
 var plotManager = app.Services.GetRequiredService<PlotConversationManager>();
+var integralBoundsManager = app.Services.GetRequiredService<IntegralBoundsManager>();
 var adminIds = (Environment.GetEnvironmentVariable("ADMIN_IDS") ?? "")
     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
     .Select(id => long.TryParse(id, out var parsed) ? parsed : 0)
@@ -99,8 +101,93 @@ botClient.StartReceiving(
                         return;
                     }
 
-                    // ── Plot conversation state machine ──
+                    // ── Integral bounds conversation state machine ──
                     long chatId = message.Chat.Id;
+                    var integralState = integralBoundsManager.GetState(chatId);
+
+                    if (integralState != null)
+                    {
+                        string param = text.Trim();
+
+                        if (param.Equals("/cancel", StringComparison.OrdinalIgnoreCase))
+                        {
+                            integralBoundsManager.RemoveState(chatId);
+                            await bot.SendMessage(chatId: chatId, text: "Definite integral cancelled.", cancellationToken: token);
+                            return;
+                        }
+
+                        try
+                        {
+                            switch (integralState.Phase)
+                            {
+                                case IntegralBoundsPhase.AskLower:
+                                    if (!double.TryParse(param, System.Globalization.NumberStyles.Any,
+                                            System.Globalization.CultureInfo.InvariantCulture, out double lowerVal))
+                                    {
+                                        await bot.SendMessage(chatId: chatId,
+                                            text: "Invalid number. Please enter the lower bound (e.g. 0):",
+                                            cancellationToken: token);
+                                        return;
+                                    }
+                                    integralState.Lower = lowerVal;
+                                    integralState.Phase = IntegralBoundsPhase.AskUpper;
+                                    integralBoundsManager.SetState(chatId, integralState);
+                                    await bot.SendMessage(chatId: chatId,
+                                        text: $"Lower bound = {lowerVal:G}. Now enter the upper bound:",
+                                        cancellationToken: token);
+                                    return;
+
+                                case IntegralBoundsPhase.AskUpper:
+                                    if (!double.TryParse(param, System.Globalization.NumberStyles.Any,
+                                            System.Globalization.CultureInfo.InvariantCulture, out double upperVal))
+                                    {
+                                        await bot.SendMessage(chatId: chatId,
+                                            text: "Invalid number. Please enter the upper bound (e.g. 1):",
+                                            cancellationToken: token);
+                                        return;
+                                    }
+                                    integralState.Upper = upperVal;
+                                    integralBoundsManager.RemoveState(chatId);
+
+                                    // Compute all three numerical methods
+                                    try
+                                    {
+                                        var comparison = NumericalIntegrator.CompareMethods(
+                                            integralState.Expression,
+                                            integralState.Variable,
+                                            integralState.Lower!.Value,
+                                            upperVal);
+
+                                        string result = $@"📐 Definite integral ∫_{{a}}^{{b}} {integralState.Expression} d{integralState.Variable}
+
+Indefinite form:
+{integralState.IndefiniteResult}
+
+{comparison.Format()}";
+
+                                        // Show the result (adaptive simpson is most reliable)
+                                        await bot.SendMessage(chatId: chatId, text: result, cancellationToken: token);
+                                    }
+                                    catch (Exception numEx)
+                                    {
+                                        await bot.SendMessage(chatId: chatId,
+                                            text: $"Error computing numerical integral: {numEx.Message}",
+                                            cancellationToken: token);
+                                    }
+                                    return;
+                            }
+                        }
+                        catch (Exception)
+                        {
+                            integralBoundsManager.RemoveState(chatId);
+                            await bot.SendMessage(chatId: chatId,
+                                text: "Definite integral cancelled due to an error.",
+                                cancellationToken: token);
+                            return;
+                        }
+                    }
+
+                    // ── Plot conversation state machine ──
                     var plotState = plotManager.GetState(chatId);
 
                     if (plotState != null)
@@ -291,6 +378,8 @@ botClient.StartReceiving(
                                     {
                                         var calculatorService = new CalculatorService(expr);
                                         var result = calculatorService.Evaluate();
+                                        if (result is MathResult mr && mr.Success && mr.IsNonElementary)
+                                            return result;
                                         tracker.Add(expr);
                                         return $"{expr} = {result}";
                                     }
@@ -315,7 +404,29 @@ botClient.StartReceiving(
                                 var completed = await Task.WhenAny(evaluationTask, Task.Delay(Timeout.Infinite, exprTimeout.Token));
 
                                 if (completed == evaluationTask && evaluationTask.IsCompletedSuccessfully)
-                                    resultStr = evaluationTask.Result;
+                                {
+                                    var evalResult = evaluationTask.Result;
+
+                                    // Handle non-elementary integral: show indefinite form, ask for bounds
+                                    if (evalResult is MathResult mr && mr.Success && mr.IsNonElementary)
+                                    {
+                                        await bot.SendMessage(chatId: chatId,
+                                            text: $"\u222B {mr.OriginalExpression} d{mr.IntegralVariable} = {mr.FormattedValue}\n\n\uD83E\uDDE0 Non-elementary integral (involves special functions).\n\nTo compute the definite numerical value, enter the lower bound:",
+                                            cancellationToken: token);
+
+                                        var newState = new IntegralBoundsState
+                                        {
+                                            Expression = mr.OriginalExpression ?? expr,
+                                            Variable = mr.IntegralVariable ?? "x",
+                                            IndefiniteResult = mr.FormattedValue ?? "",
+                                            Phase = IntegralBoundsPhase.AskLower
+                                        };
+                                        integralBoundsManager.SetState(chatId, newState);
+                                        return;
+                                    }
+
+                                    resultStr = evalResult.ToString() ?? "";
+                                }
                                 else
                                     resultStr = $"{expr} = TIMEOUT";
 

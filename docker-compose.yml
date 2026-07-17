@@ -6,6 +6,14 @@ services:
     environment:
       - TELEGRAM_BOTTOKEN=${TELEGRAM_BOTTOKEN}
       - ADMIN_IDS=${ADMIN_IDS}
+      - SYMPY_ENGINE_URL=http://sympy-engine:8010
       - PORT=5000
     ports:
       - "5000:5000"
+
+  sympy-engine:
+    build: /opt/bots/sympy-engine
+    container_name: sympy-engine
+    restart: unless-stopped
+    ports:
+      - "8010:8010"

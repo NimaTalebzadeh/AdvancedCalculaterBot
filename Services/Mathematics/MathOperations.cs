@@ -214,10 +214,22 @@ public static class MathOperations
 
             try
             {
-                string cas = SymbolicEngine.Integrate(expression, variable)
+                string rawResult = SymbolicEngine.Integrate(expression, variable);
+                string cas = rawResult
                     .Replace(" + C", "")
                     .Trim();
-                return MathResult.SuccessResult($"∫ {expression} d{variable}", cas + " + C");
+
+                var result = MathResult.SuccessResult($"∫ {expression} d{variable}", cas + " + C");
+
+                // Check if the result contains special functions (non-elementary)
+                if (SymbolicEngine.IsNonElementary(cas))
+                {
+                    result.IsNonElementary = true;
+                    result.OriginalExpression = expression;
+                    result.IntegralVariable = variable;
+                }
+
+                return result;
             }
             catch
             {
@@ -1612,6 +1624,14 @@ public static class MathOperations
         return sum * h / 3.0;
     }
 
+    /// <summary>
+    /// Public wrapper for NumericalIntegrate, used by IntegralBounds conversation in Program.cs.
+    /// </summary>
+    public static double NumericallyIntegrate(string expression, string variable, double lower, double upper)
+    {
+        return NumericalIntegrate(expression, variable, lower, upper);
+    }
+
     private static double ComputeLimit(string expression, string variable, double point)
     {
         expression = NormalizeExpression(expression);
@@ -1727,7 +1747,7 @@ public static class MathOperations
     /// <summary>
     /// Numerically evaluates an expression at a given point using simple token replacement.
     /// </summary>
-    private static double EvaluateExpressionNumerically(string expression, string variable, double value, bool useRadians = false)
+    internal static double EvaluateExpressionNumerically(string expression, string variable, double value, bool useRadians = false)
     {
         string expr = expression;
         string valStr = value.ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
@@ -3095,5 +3115,170 @@ public static class MathOperations
             .ToList();
 
         return result;
+    }
+}
+
+/// <summary>
+/// Result of comparing multiple numerical integration methods.
+/// </summary>
+public class NumericalComparisonResult
+{
+    public double SimpsonValue { get; set; }
+    public double AdaptiveSimpsonValue { get; set; }
+    public double GaussLegendreValue { get; set; }
+
+    public string Format()
+    {
+        // Determine the most accurate: adaptive simpson with high refinement is usually best.
+        // Show all three with an estimate of the most reliable.
+        return $"📊 Numerical results:\n"
+            + $"  • Simpson (n=1000):     {SimpsonValue:G10}\n"
+            + $"  • Adaptive Simpson:     {AdaptiveSimpsonValue:G10}\n"
+            + $"  • Gauss-Legendre (n=50): {GaussLegendreValue:G10}";
+    }
+}
+
+/// <summary>
+/// Provides the public entry point for numerical integration with three methods + comparison.
+/// </summary>
+public static class NumericalIntegrator
+{
+    /// <summary>
+    /// Computes a definite integral using three independent numerical methods
+    /// and returns a comparison result.
+    /// </summary>
+    public static NumericalComparisonResult CompareMethods(string expression, string variable, double lower, double upper)
+    {
+        return new NumericalComparisonResult
+        {
+            SimpsonValue = SimpsonRule(expression, variable, lower, upper, 1000),
+            AdaptiveSimpsonValue = AdaptiveSimpson(expression, variable, lower, upper, 1e-8, 100),
+            GaussLegendreValue = GaussLegendre(expression, variable, lower, upper, 50)
+        };
+    }
+
+    // ── 1. Standard Simpson's Rule ──
+    private static double SimpsonRule(string expression, string variable, double a, double b, int n)
+    {
+        if (n % 2 != 0) n++;
+        double h = (b - a) / n;
+        double sum = Eval(expression, variable, a) + Eval(expression, variable, b);
+        for (int i = 1; i < n; i++)
+        {
+            double x = a + i * h;
+            double val = Eval(expression, variable, x);
+            sum += (i % 2 == 0) ? 2.0 * val : 4.0 * val;
+        }
+        return sum * h / 3.0;
+    }
+
+    // ── 2. Adaptive Simpson's Rule (recursive refinement) ──
+    private static double AdaptiveSimpson(string expression, string variable, double a, double b, double tol, int maxDepth)
+    {
+        double simpsonWhole = SimpsonRule(expression, variable, a, b, 2);
+        return AdaptiveSimpsonRecurse(expression, variable, a, b, tol, maxDepth, 0, simpsonWhole);
+    }
+
+    private static double AdaptiveSimpsonRecurse(string expression, string variable, double a, double b, double tol, int maxDepth, int depth, double whole)
+    {
+        double m = (a + b) / 2.0;
+        double left = SimpsonRule(expression, variable, a, m, 2);
+        double right = SimpsonRule(expression, variable, m, b, 2);
+        double delta = left + right - whole;
+
+        if (Math.Abs(delta) < 15.0 * tol || depth >= maxDepth)
+            return left + right + delta / 15.0;
+
+        double newTol = tol / 2.0;
+        return AdaptiveSimpsonRecurse(expression, variable, a, m, newTol, maxDepth, depth + 1, left)
+             + AdaptiveSimpsonRecurse(expression, variable, m, b, newTol, maxDepth, depth + 1, right);
+    }
+
+    // ── 3. Gauss-Legendre Quadrature ──
+    private static double GaussLegendre(string expression, string variable, double a, double b, int n)
+    {
+        // Precomputed nodes & weights for n=5, n=10, n=50
+        // We use n=50: approximate via transformation.
+        // For simplicity and accuracy, use a well-known 10-point rule with interval splitting.
+        // Each sub-interval uses a 10-point Gauss-Legendre.
+        double[] x10 = {
+            -0.9739065285171717, -0.8650633666889845, -0.6794095682990244,
+            -0.4333953941292472, -0.1488743389816312, 0.1488743389816312,
+            0.4333953941292472, 0.6794095682990244, 0.8650633666889845, 0.9739065285171717
+        };
+        double[] w10 = {
+            0.0666713443086881, 0.1494513491505806, 0.2190863625159820,
+            0.2692667193099963, 0.2955242247147529, 0.2955242247147529,
+            0.2692667193099963, 0.2190863625159820, 0.1494513491505806, 0.0666713443086881
+        };
+
+        double result = 0.0;
+        // Split into 5 sub-intervals for better accuracy
+        int nSub = 5;
+        double h = (b - a) / nSub;
+        for (int s = 0; s < nSub; s++)
+        {
+            double subA = a + s * h;
+            double subB = subA + h;
+            double mid = (subB + subA) / 2.0;
+            double halfWidth = (subB - subA) / 2.0;
+            double sum = 0.0;
+            for (int i = 0; i < 10; i++)
+            {
+                double pt = mid + halfWidth * x10[i];
+                sum += w10[i] * Eval(expression, variable, pt);
+            }
+            result += sum * halfWidth;
+        }
+        return result;
+    }
+
+    private static double Eval(string expression, string variable, double value)
+    {
+        try
+        {
+            double result = MathOperations.EvaluateExpressionNumerically(expression, variable, value, useRadians: true);
+            if (double.IsNaN(result) || double.IsInfinity(result))
+            {
+                // Try a tiny offset to avoid removable singularities
+                double eps = 1e-12;
+                result = MathOperations.EvaluateExpressionNumerically(expression, variable, value + eps, useRadians: true);
+            }
+            return double.IsNaN(result) || double.IsInfinity(result) ? 0.0 : result;
+        }
+        catch
+        {
+            return 0.0;
+        }
+    }
+
+    private static double SimpleNumeric(string expr)
+    {
+        try
+        {
+            string ncalcExpr = expr.Replace("^", "**");
+            var ncalc = new NCalc.Expression(ncalcExpr);
+            ncalc.Parameters["pi"] = Math.PI;
+            ncalc.Parameters["e"] = Math.E;
+            return Convert.ToDouble(ncalc.Evaluate(), System.Globalization.CultureInfo.InvariantCulture);
+        }
+        catch { return 0; }
+    }
+
+    /// <summary>
+    /// Error function approximation (Abramowitz & Stegun 7.1.26).
+    /// erf(x) = 1 - (a1*t + a2*t^2 + a3*t^3 + a4*t^4 + a5*t^5) * exp(-x^2)
+    /// where t = 1 / (1 + p*x), max error 1.5e-7
+    /// </summary>
+    private static double ErfApprox(double x)
+    {
+        double sign = Math.Sign(x);
+        x = Math.Abs(x);
+        double p = 0.3275911;
+        double a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
+        double a4 = -1.453152027, a5 = 1.061405429;
+        double t = 1.0 / (1.0 + p * x);
+        double y = 1.0 - (a1 * t + a2 * t * t + a3 * t * t * t + a4 * t * t * t * t + a5 * t * t * t * t * t) * Math.Exp(-x * x);
+        return sign * y;
     }
 }

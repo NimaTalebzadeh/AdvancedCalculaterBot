@@ -44,7 +44,11 @@ public class CalculatorService
                 // For operations that return complex results or strings, we need to handle them specially
                 var operationResult = MathOperationHandler.HandleCommand(expression);
                 if (operationResult.Success)
-                    return operationResult.FormattedValue ?? operationResult.Value ?? "Result";
+                {
+                    // Return the MathResult directly so callers can inspect
+                    // additional metadata (like IsNonElementary for integrals).
+                    return operationResult;
+                }
                 else
                     throw new ArgumentException(operationResult.Message);
             }

@@ -13,6 +13,9 @@ public class MathResult
     public object? Value { get; set; }
     public string? FormattedValue { get; set; }
     public string? ErrorDetails { get; set; }
+    public bool IsNonElementary { get; set; }
+    public string? OriginalExpression { get; set; }
+    public string? IntegralVariable { get; set; }
 
     public static MathResult SuccessResult(string expression, object value)
     {

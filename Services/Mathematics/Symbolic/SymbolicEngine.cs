@@ -118,21 +118,65 @@ public static class SymbolicEngine
 
     public static string Integrate(string expr, string variable)
     {
-        Entity entity = Parse(expr);
-        Entity result = entity.Integrate(variable).Simplify();
-        string angouriResult = SymbolicFormatter.Format(result);
+        // Try SymPy first for potentially non-elementary integrals.
+        // SymPy handles special functions (erf, Ei, Si, etc.) reliably,
+        // whereas AngouriMath hangs on non-elementary integrals.
+        string? sympyResult = TrySymPy("integrate", expr, variable);
+        if (sympyResult != null)
+            return sympyResult + " + C";
 
-        // If AngouriMath returned integral(...), it means it couldn't solve it symbolically.
-        // Fall back to SymPy.
-        if (angouriResult.Contains("integral(", StringComparison.OrdinalIgnoreCase) ||
-            angouriResult.Contains("integrate(", StringComparison.OrdinalIgnoreCase))
+        // Fallback to AngouriMath for elementary integrals
+        try
         {
-            string? sympyResult = TrySymPy("integrate", expr, variable);
-            if (sympyResult != null)
-                return sympyResult + " + C";
-        }
+            Entity entity = Parse(expr);
+            string angouriResult;
+            using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3)))
+            {
+                var task = Task.Run(() =>
+                {
+                    Entity result = entity.Integrate(variable).Simplify();
+                    return SymbolicFormatter.Format(result);
+                }, cts.Token);
 
-        return angouriResult + " + C";
+                if (task.Wait(TimeSpan.FromSeconds(3), cts.Token))
+                    angouriResult = task.Result;
+                else
+                    throw new TimeoutException("AngouriMath integration timed out");
+            }
+
+            if (angouriResult.Contains("integral(", StringComparison.OrdinalIgnoreCase) ||
+                angouriResult.Contains("integrate(", StringComparison.OrdinalIgnoreCase))
+            {
+                // Already tried SymPy above, nothing more to do
+                return angouriResult + " + C";
+            }
+
+            return angouriResult + " + C";
+        }
+        catch
+        {
+            // If AngouriMath fails, SymPy already returned null above
+            // Return the expression as integral
+            return $"integral({expr}, {variable}) + C";
+        }
+    }
+
+    /// <summary>
+    /// Returns true if the result string contains a special function (erf, gamma, etc.)
+    /// indicating it's a non-elementary integral.
+    /// </summary>
+    public static bool IsNonElementary(string result)
+    {
+        if (string.IsNullOrEmpty(result))
+            return false;
+        string lower = result.ToLowerInvariant();
+        return lower.Contains("erf(") || lower.Contains("erfc(") || lower.Contains("erfi(")
+            || lower.Contains("gamma(") || lower.Contains("gammainc(")
+            || lower.Contains("si(") || lower.Contains("ci(")
+            || lower.Contains("ei(") || lower.Contains("li(")
+            || lower.Contains("polylog(") || lower.Contains("dilog(")
+            || lower.Contains("fresnel(") || lower.Contains("elliptic(")
+            || lower.Contains("hypergeometric(") || lower.Contains("zeta(");
     }
 
     public static string Differentiate(string expr, string variable, int order = 1)
