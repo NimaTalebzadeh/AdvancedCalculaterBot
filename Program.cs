@@ -370,7 +370,7 @@ Indefinite form:
                                 // Complex symbolic derivatives/integrals can take several seconds.
                                 // Keep a timeout to prevent total bot hangs, but allow enough
                                 // time for advanced calculus expressions to complete.
-                                exprTimeout.CancelAfter(TimeSpan.FromSeconds(15));
+                                exprTimeout.CancelAfter(TimeSpan.FromSeconds(60));
 
                                 var evaluationTask = Task.Run(() =>
                                 {
